@@ -1,0 +1,630 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>我的保障拼图 - 六维深度测评版</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=ZCOOL+KuaiLe&family=Nunito:wght@700&display=swap');
+
+        body {
+            background-color: #FFF7ED;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            font-family: 'ZCOOL KuaiLe', 'Nunito', sans-serif;
+            overflow: hidden;
+            user-select: none;
+        }
+
+        #stage {
+            width: 100%;
+            max-width: 800px;
+            aspect-ratio: 16/9;
+            position: relative;
+            overflow: hidden;
+            border-radius: 30px;
+            box-shadow: 0 20px 60px rgba(255, 166, 0, 0.3);
+            background: #fff;
+            border: 8px solid #fff;
+        }
+
+        /* 插画层 */
+        .illustration-layer {
+            position: absolute;
+            inset: 0;
+            z-index: 1;
+            background-image: url('https://raw.githubusercontent.com/wuyifan-code/04/main/小五.jpg'); 
+            background-size: cover;
+            background-position: center bottom;
+            transform-origin: center center;
+            transition: transform 1.2s cubic-bezier(0.34, 1.56, 0.64, 1), filter 0.5s;
+        }
+
+        /* 拼图容器 */
+        .puzzle-container {
+            position: absolute;
+            inset: 0;
+            z-index: 10;
+            pointer-events: none;
+        }
+
+        .jelly-piece {
+            position: absolute;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            flex-direction: column;
+            opacity: 0;
+            transform: scale(0.5) rotate(-10deg);
+            transition: all 0.8s cubic-bezier(0.34, 1.56, 0.64, 1);
+            filter: drop-shadow(0 5px 0px rgba(0,0,0,0.1));
+            z-index: 20;
+        }
+        
+        .piece-std { width: 140px; height: 140px; }
+        .piece-wide { width: 180px; height: 140px; }
+        
+        /* 缺失的拼图（虚线框） */
+        .piece-gap {
+            border: 3px dashed rgba(255, 99, 71, 0.5);
+            background: rgba(255, 255, 255, 0.85);
+            color: #FF6347;
+            border-radius: 20px;
+            opacity: 0;
+            transform: scale(0.8);
+            transition: all 0.6s ease;
+            /* 增加一点阴影让它更明显 */
+            box-shadow: 0 10px 25px rgba(255, 99, 71, 0.15);
+        }
+        .piece-gap.show { opacity: 1; transform: scale(1); animation: pulse-border 2s infinite; }
+
+        @keyframes pulse-border {
+            0% { border-color: rgba(255, 99, 71, 0.3); }
+            50% { border-color: rgba(255, 99, 71, 1); }
+            100% { border-color: rgba(255, 99, 71, 0.3); }
+        }
+
+        .puzzle-shape {
+            width: 100%; height: 100%; position: absolute; top: 0; left: 0; z-index: -1;
+            filter: drop-shadow(0 0 0 2px white); 
+        }
+
+        .puzzle-text {
+            color: white; text-shadow: 0 1px 2px rgba(0,0,0,0.2); z-index: 10; text-align: center;
+            transform: translateY(-8px); 
+        }
+        .gap-text {
+            color: #E53E3E; font-size: 1.1rem; font-weight: bold; text-align: center; z-index: 10;
+        }
+        .gap-label { font-size: 0.8rem; color: #718096; margin-top: 4px; }
+
+        .cute-tag {
+            background: #fff; color: #555; padding: 3px 10px; border-radius: 50px; font-size: 13px;
+            margin-top: 4px; box-shadow: 0 3px 0 rgba(0,0,0,0.1);
+            transform: scale(0); transition: transform 0.3s ease;
+        }
+
+        .bounce-in { opacity: 1 !important; transform: scale(1) rotate(0deg) !important; }
+        .tag-show { transform: scale(1) !important; }
+
+        /* 字幕 */
+        .bubble-box {
+            position: absolute; bottom: 25px; left: 50%; transform: translateX(-50%); width: 85%;
+            background: rgba(255, 255, 255, 0.95); border-radius: 20px; padding: 15px 25px;
+            z-index: 50; box-shadow: 0 10px 30px rgba(0,0,0,0.1); border: 3px solid #E5E7EB;
+            display: flex; align-items: center; gap: 15px; transition: bottom 0.5s;
+        }
+        
+        .avatar-circle {
+            width: 50px; height: 50px; background: #FFD700; border-radius: 50%; border: 3px solid white;
+            overflow: hidden; box-shadow: 0 4px 0 rgba(0,0,0,0.1); flex-shrink: 0;
+            transition: all 0.3s;
+        }
+        .avatar-circle img { width: 100%; height: 100%; object-fit: cover; }
+        .sub-text { color: #4B5563; font-size: 1.1rem; line-height: 1.4; flex-grow: 1; }
+
+        /* 专业测评工具面板 */
+        #test-overlay {
+            position: absolute; inset: 0; 
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(8px);
+            z-index: 80;
+            display: flex; flex-direction: column; justify-content: center; align-items: center;
+            transform: translateY(100%); transition: transform 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+            padding: 20px;
+        }
+        
+        .test-card {
+            background: white; width: 100%; max-width: 550px;
+            border-radius: 20px; padding: 25px;
+            box-shadow: 0 10px 40px rgba(59, 130, 246, 0.15);
+            border: 2px solid #E5E7EB;
+            text-align: center;
+            position: relative;
+        }
+
+        .tool-badge {
+            position: absolute; top: -12px; left: 50%; transform: translateX(-50%);
+            background: #2563EB; color: white; font-size: 0.8rem; padding: 4px 12px;
+            border-radius: 12px; font-weight: normal; letter-spacing: 1px;
+        }
+        
+        .test-step { display: none; animation: fadeIn 0.4s ease; }
+        .test-step.active { display: block; }
+        
+        .option-grid {
+            display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 15px;
+        }
+        
+        .test-btn {
+            background: #F3F4F6; border: 2px solid #E5E7EB; padding: 12px; border-radius: 12px;
+            cursor: pointer; transition: all 0.2s; font-size: 0.95rem; color: #4B5563; font-weight: bold;
+        }
+        .test-btn:hover { background: #EBF8FF; border-color: #3B82F6; color: #2563EB; transform: translateY(-2px); }
+
+        /* 谭老师点评框 */
+        #tan-comment-box {
+            position: absolute; top: 20px; right: 20px; width: 300px;
+            background: rgba(255, 255, 255, 0.95); border-radius: 15px; padding: 15px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1); border-left: 5px solid #3B82F6;
+            z-index: 60; opacity: 0; transform: translateX(50px);
+            transition: all 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
+            font-size: 0.9rem; color: #4B5563; max-height: 80vh; overflow-y: auto;
+        }
+        .tan-head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; border-bottom: 1px solid #eee; padding-bottom: 5px;}
+        .tan-avatar-sm { width: 30px; height: 30px; background: #3B82F6; border-radius: 50%; color: white; display:flex; justify-content:center; align-items:center; font-size: 14px;}
+
+        /* 开始页 */
+        #start-mask {
+            position: absolute; inset: 0; background: rgba(255,247,237, 0.98);
+            z-index: 100; display: flex; flex-direction: column; justify-content: center; align-items: center;
+        }
+        
+        .btn-candy {
+            margin-top: 25px; padding: 12px 40px; font-size: 1.5rem;
+            background: linear-gradient(to bottom, #60A5FA, #3B82F6); color: white;
+            border: none; border-radius: 50px; cursor: pointer;
+            box-shadow: 0 6px 0 #2563EB, 0 15px 20px rgba(59, 130, 246, 0.4);
+            transition: all 0.1s; position: relative; top: 0;
+        }
+        .btn-candy:active { top: 6px; box-shadow: 0 0 0 #2563EB, 0 0 0 rgba(0,0,0,0); }
+
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+    </style>
+</head>
+<body>
+
+<div id="stage">
+    
+    <audio id="bgm" loop preload="auto">
+        <source src="https://raw.githubusercontent.com/wuyifan-code/04/main/贝加尔湖畔.mp3" type="audio/mpeg">
+    </audio>
+
+    <div class="illustration-layer" id="bg-layer"></div>
+
+    <!-- 谭老师点评弹窗 -->
+    <div id="tan-comment-box">
+        <div class="tan-head">
+            <div class="tan-avatar-sm">谭</div>
+            <div class="font-bold text-blue-600">谭老师保险顾问</div>
+        </div>
+        <div id="tan-content">正在分析...</div>
+    </div>
+
+    <div class="puzzle-container">
+        <!-- 基础三拼图 -->
+        <div class="jelly-piece piece-std" id="p1" style="top: 15%; left: 15%;">
+            <svg class="puzzle-shape" viewBox="0 0 100 100" preserveAspectRatio="none">
+                <path d="M10,10 H85 V35 Q105,50 85,65 V90 H60 Q50,70 40,90 H10 V10 Z" fill="#93C5FD" />
+                <path d="M15,15 H80 V20 H15 Z" fill="white" opacity="0.4" />
+            </svg>
+            <div class="puzzle-text">
+                <div class="text-2xl">职工医保</div>
+                <div class="cute-tag">基础兜底</div>
+            </div>
+        </div>
+
+        <div class="jelly-piece piece-std" id="p2" style="top: 15%; left: 65%;">
+            <svg class="puzzle-shape" viewBox="0 0 100 100" preserveAspectRatio="none">
+                <path d="M15,10 H90 V90 H65 Q55,70 45,90 H15 V65 Q35,50 15,35 V10 Z" fill="#FDBA74" />
+                <path d="M20,15 H85 V20 H20 Z" fill="white" opacity="0.4" />
+            </svg>
+            <div class="puzzle-text" style="padding-left: 10px;">
+                <div class="text-2xl">贵惠保</div>
+                <div class="cute-tag">补充自费</div>
+            </div>
+        </div>
+
+        <div class="jelly-piece piece-wide" id="p3" style="top: 55%; left: 40%;">
+            <svg class="puzzle-shape" viewBox="0 0 180 100" preserveAspectRatio="none">
+                <path d="M10,30 H30 Q40,10 50,30 H120 Q130,10 140,30 H170 V80 H10 V30 Z" fill="#6EE7B7" />
+                <path d="M20,35 H160 V40 H20 Z" fill="white" opacity="0.4" />
+            </svg>
+            <div class="puzzle-text" style="margin-top: 15px;">
+                <div class="text-2xl">宠物医保</div>
+                <div class="cute-tag">汪汪队专属</div>
+            </div>
+        </div>
+
+        <!-- 动态缺口拼图 (默认都在屏幕左侧外) -->
+        <div class="jelly-piece piece-std piece-gap" id="gap1" style="top: 20%; left: -20%;">
+            <div class="gap-text">?</div><div class="gap-label"></div>
+        </div>
+        <div class="jelly-piece piece-std piece-gap" id="gap2" style="top: 20%; left: -20%;">
+            <div class="gap-text">?</div><div class="gap-label"></div>
+        </div>
+
+    </div>
+
+    <!-- 底部字幕条 -->
+    <div id="main-bubble" class="bubble-box">
+        <div class="avatar-circle" id="chen-avatar">
+            <img src="https://raw.githubusercontent.com/wuyifan-code/04/main/头像.jpg" alt="avatar">
+        </div>
+        <div id="sub-text" class="sub-text">准备好开始了吗？</div>
+    </div>
+
+    <!-- 六维测评面板 -->
+    <div id="test-overlay">
+        <div class="test-card">
+            <div class="tool-badge">6-DIMENSION MODEL</div>
+            <div class="mb-2 text-gray-800 font-bold text-xl">📝 动态家庭风险测评</div>
+            <div class="text-xs text-gray-400 mb-4">基于通用家庭风险动态配置逻辑</div>
+            
+            <div class="h-1 w-full bg-gray-100 rounded mb-6 overflow-hidden">
+                <div id="progress-bar" class="h-full bg-blue-500 transition-all duration-300" style="width: 16%"></div>
+            </div>
+
+            <!-- Q1 -->
+            <div id="step-1" class="test-step active">
+                <h3 class="text-lg font-bold text-gray-700 mb-2">1/6. 目前所处的人生阶段？</h3>
+                <div class="option-grid">
+                    <button class="test-btn" onclick="nextStep(1, 'youth')">20-30岁 奋斗期</button>
+                    <button class="test-btn" onclick="nextStep(1, 'middle')">30-45岁 支柱期</button>
+                    <button class="test-btn" onclick="nextStep(1, 'senior')">45岁+ 稳健期</button>
+                    <button class="test-btn" onclick="nextStep(1, 'retire')">退休准备期</button>
+                </div>
+            </div>
+
+            <!-- Q2 -->
+            <div id="step-2" class="test-step">
+                <h3 class="text-lg font-bold text-gray-700 mb-2">2/6. 家庭责任结构？</h3>
+                <div class="option-grid">
+                    <button class="test-btn" onclick="nextStep(2, 'single')">单身贵族</button>
+                    <button class="test-btn" onclick="nextStep(2, 'kids')">有未成年子女</button>
+                    <button class="test-btn" onclick="nextStep(2, 'parents')">上有老下有小</button>
+                    <button class="test-btn" onclick="nextStep(2, 'wealth')">关注家族传承</button>
+                </div>
+            </div>
+
+            <!-- Q3 -->
+            <div id="step-3" class="test-step">
+                <h3 class="text-lg font-bold text-gray-700 mb-2">3/6. 核心财务担忧？</h3>
+                <div class="option-grid">
+                    <button class="test-btn" onclick="nextStep(3, 'health')">担心大病致贫</button>
+                    <button class="test-btn" onclick="nextStep(3, 'invest')">资产保值增值</button>
+                    <button class="test-btn" onclick="nextStep(3, 'stable')">追求极度稳健</button>
+                    <button class="test-btn" onclick="nextStep(3, 'debt')">房贷/负债压力</button>
+                </div>
+            </div>
+
+            <!-- Q4 (新增) -->
+            <div id="step-4" class="test-step">
+                <h3 class="text-lg font-bold text-gray-700 mb-2">4/6. 现有商业保险配置？</h3>
+                <div class="option-grid">
+                    <button class="test-btn" onclick="nextStep(4, 'none')">仅社保 (裸奔)</button>
+                    <button class="test-btn" onclick="nextStep(4, 'some')">有少量消费型</button>
+                    <button class="test-btn" onclick="nextStep(4, 'full')">配置比较齐全</button>
+                    <button class="test-btn" onclick="nextStep(4, 'unknown')">买过但忘了</button>
+                </div>
+            </div>
+
+            <!-- Q5 (新增) -->
+            <div id="step-5" class="test-step">
+                <h3 class="text-lg font-bold text-gray-700 mb-2">5/6. 年度保费预算预期？</h3>
+                <div class="option-grid">
+                    <button class="test-btn" onclick="nextStep(5, 'low')">5千元以内</button>
+                    <button class="test-btn" onclick="nextStep(5, 'mid')">5千-1.5万元</button>
+                    <button class="test-btn" onclick="nextStep(5, 'high')">1.5万-3万元</button>
+                    <button class="test-btn" onclick="nextStep(5, 'vip')">预算充足</button>
+                </div>
+            </div>
+
+             <!-- Q6 (新增) -->
+             <div id="step-6" class="test-step">
+                <h3 class="text-lg font-bold text-gray-700 mb-2">6/6. 您和家人的健康状况？</h3>
+                <div class="option-grid">
+                    <button class="test-btn" onclick="finishTest('excellent')">身体倍儿棒</button>
+                    <button class="test-btn" onclick="finishTest('minor')">体检偶有异常</button>
+                    <button class="test-btn" onclick="finishTest('chronic')">有慢性病史</button>
+                    <button class="test-btn" onclick="finishTest('risk')">高危职业/风险</button>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <!-- 开始遮罩 -->
+    <div id="start-mask">
+        <h1 class="text-4xl text-blue-500 mb-2 font-bold mt-10">动态风险拼图</h1>
+        <p class="text-gray-500 text-lg">六维深度测评版</p>
+        
+        <div class="mt-6 p-4 bg-white rounded-xl shadow-sm border border-orange-100 max-w-sm text-center">
+            <p class="text-sm text-gray-600 mb-2">升级演示流程：</p>
+            <div class="flex gap-2 justify-center text-xs font-bold text-orange-500 items-center">
+                <span class="bg-orange-100 px-2 py-1 rounded">基础方案</span>
+                <span>➜</span>
+                <span class="bg-blue-100 px-2 py-1 rounded text-blue-500">6维深度测评</span>
+                <span>➜</span>
+                <span class="bg-green-100 px-2 py-1 rounded text-green-500">定制化建议</span>
+            </div>
+        </div>
+
+        <button id="start-btn" class="btn-candy" onclick="start()">
+            开始演示
+        </button>
+    </div>
+
+</div>
+
+<script>
+    const script = [
+        { t: 0, text: "嗨大家好~ 我是陈老师！", act: "init" },
+        { t: 3, text: "我的生活很简单：工作、运动...", act: "bg_move_1" },
+        { t: 6, text: "还有就是陪这只圆滚滚的柴犬‘小五’！", act: "bg_move_2" }, 
+        { t: 10, text: "生活得有保障嘛，今天分享我的三块“护身符”！", act: "bg_blur" },
+        { t: 15, text: "第一块是【职工医保】，打工人的基础兜底。", act: "p1_in" },
+        { t: 20, text: "但如果有大额自费药，我又加了【贵惠保】。", act: "p2_in" },
+        { t: 28, text: "最后是给小五的【宠物医保】，汪汪队也要有保障。", act: "p3_in" },
+        { t: 35, text: "你看，这三块拼起来，是不是感觉严丝合缝了？", act: "merge" },
+        { t: 40, text: "谭老师，您觉得这套方案完美吗？", act: "call_tan" }, 
+    ];
+
+    const totalTime = 999; 
+    let timer = null;
+    let currTime = 0;
+    let isTestActive = false;
+    let userProfile = { 
+        age: '', responsibility: '', finance: '', 
+        existing: '', budget: '', health: '' 
+    };
+
+    const bg = document.getElementById('bg-layer');
+    const p1 = document.getElementById('p1');
+    const p2 = document.getElementById('p2');
+    const p3 = document.getElementById('p3');
+    const sub = document.getElementById('sub-text');
+    const bgm = document.getElementById('bgm');
+    const testOverlay = document.getElementById('test-overlay');
+    const tanBox = document.getElementById('tan-comment-box');
+    const tanContent = document.getElementById('tan-content');
+    const mainBubble = document.getElementById('main-bubble');
+    const gap1 = document.getElementById('gap1');
+    const gap2 = document.getElementById('gap2');
+
+    const synth = window.speechSynthesis;
+    let voices = [];
+    speechSynthesis.onvoiceschanged = () => {
+        voices = synth.getVoices().filter(v => v.lang.includes('zh'));
+    };
+
+    function speak(txt, isTan = false) {
+        synth.cancel();
+        let cleanText = txt.replace(/[\u{1F600}-\u{1F64F}]/gu, '');
+        let u = new SpeechSynthesisUtterance(cleanText);
+        u.rate = isTan ? 1.0 : 1.1; 
+        u.pitch = isTan ? 0.9 : 1.1;
+        if(voices.length) u.voice = voices[0];
+        synth.speak(u);
+    }
+
+    function start() {
+        document.getElementById('start-mask').style.opacity = '0';
+        setTimeout(() => document.getElementById('start-mask').style.display = 'none', 500);
+        
+        bgm.volume = 0.3;
+        bgm.play().catch(e=>{});
+
+        timer = setInterval(() => {
+            if(isTestActive) return;
+
+            currTime += 0.1;
+            let cue = script.find(s => Math.abs(s.t - currTime) < 0.1);
+            if(cue) { 
+                if(cue.act === "call_tan") {
+                    doAction(cue.act);
+                } else {
+                    sub.innerText = cue.text; 
+                    speak(cue.text); 
+                    doAction(cue.act); 
+                }
+            }
+        }, 100);
+    }
+
+    function doAction(act) {
+        switch(act) {
+            case "init": bg.style.transform = "scale(1)"; break;
+            case "bg_move_1": bg.style.transform = "scale(1.1) translateY(-10px)"; break;
+            case "bg_move_2": bg.style.backgroundPosition = "75% 65%"; bg.style.transform = "scale(1.2)"; break;
+            case "bg_blur": bg.style.filter = "blur(4px) brightness(0.9)"; bg.style.backgroundPosition = "center center"; bg.style.transform = "scale(1)"; break;
+            
+            case "p1_in": p1.classList.add('bounce-in'); p1.style.left = "20%"; break;
+            case "p2_in": 
+                p1.style.left = "15%"; 
+                p2.classList.add('bounce-in'); p2.style.left = "70%"; 
+                break;
+            case "p3_in": 
+                bg.style.filter = "blur(4px) brightness(0.6)"; 
+                p3.classList.add('bounce-in'); 
+                break;
+            case "merge":
+                p1.style.transition = "all 1s ease";
+                p2.style.transition = "all 1s ease";
+                p3.style.transition = "all 1s ease";
+                p1.style.left = "calc(50% - 119px)"; p1.style.top = "30%"; p1.style.zIndex=20;
+                p2.style.left = "calc(50% - 21px)"; p2.style.top = "30%"; p2.style.zIndex=19;
+                p3.style.left = "calc(50% - 90px)"; p3.style.top = "calc(30% + 84px)"; p3.style.zIndex=21;
+                break;
+            case "call_tan":
+                interruptWithTan();
+                break;
+        }
+    }
+
+    async function interruptWithTan() {
+        isTestActive = true;
+        clearInterval(timer);
+
+        await wait(1000);
+        showTanComment("陈老师，这三块确实是基础。但家庭风险是动态的，单纯的三件套很难说‘严丝合缝’。");
+        speak("陈老师，这三块确实是基础。但家庭风险是动态的，单纯的三件套很难说‘严丝合缝’。", true);
+        
+        await wait(6000);
+
+        showTanComment("我们不妨引入专业的【六维家庭风险模型】深度测算一下，捕捉那些隐形缺口。");
+        speak("我们不妨引入专业的六维家庭风险模型深度测算一下，捕捉那些隐形缺口。", true);
+        
+        await wait(4000);
+        
+        testOverlay.style.transform = "translateY(0)";
+        tanBox.style.opacity = "0"; 
+        mainBubble.style.bottom = "-150px"; 
+    }
+
+    function nextStep(currentStep, value) {
+        // 保存数据
+        if(currentStep === 1) userProfile.age = value;
+        if(currentStep === 2) userProfile.responsibility = value;
+        if(currentStep === 3) userProfile.finance = value;
+        if(currentStep === 4) userProfile.existing = value;
+        if(currentStep === 5) userProfile.budget = value;
+
+        document.getElementById(`step-${currentStep}`).classList.remove('active');
+        document.getElementById(`step-${currentStep+1}`).classList.add('active');
+        const progress = (currentStep + 1) / 6 * 100;
+        document.getElementById('progress-bar').style.width = `${progress}%`;
+    }
+
+    function finishTest(value) {
+        userProfile.health = value;
+        testOverlay.style.transform = "translateY(100%)"; 
+        analyzeResult();
+    }
+
+    async function analyzeResult() {
+        tanBox.style.opacity = "1";
+        tanBox.style.width = "320px";
+        
+        let comments = "";
+        let gaps = [];
+
+        // --- 谭老师的多维度决策逻辑 ---
+
+        // 逻辑1：健康维度优先判断
+        if (userProfile.health === 'chronic' || userProfile.health === 'risk') {
+            comments += "基于您反馈的【健康状况/职业风险】，常规重疾险可能面临拒保。";
+            if (userProfile.existing === 'none' || userProfile.existing === 'unknown') {
+                 comments += "当前首要任务是**核保宽松的防癌险或惠民保升级版**，确诊即赔很重要。";
+                 gaps.push({ name: "防癌/特药", label: "健康兜底" });
+            } else {
+                 comments += "建议仔细检查已有保单是否包含**既往症免责**条款。";
+            }
+        } else {
+            // 健康体，进入常规逻辑
+            if (userProfile.existing === 'none') {
+                comments += "目前处于【裸奔】状态，风险敞口较大。";
+            }
+        }
+
+        // 逻辑2：家庭责任 & 预算 组合判断
+        if (userProfile.responsibility === 'kids' || userProfile.responsibility === 'parents') {
+            // 强责任期
+            if (userProfile.budget === 'low' || userProfile.budget === 'mid') {
+                comments += "作为家庭支柱，在这个预算下，建议优先配置**高杠杆的定期寿险**，用小钱撬动大保额，防止收入中断。";
+                gaps.push({ name: "定期寿险", label: "高杠杆防护" });
+            } else {
+                comments += "作为家庭支柱且预算充足，建议组合配置**终身寿险+重疾险**，构建长期稳定的资产护城河。";
+                gaps.push({ name: "终身寿险", label: "资产护城河" });
+            }
+        }
+
+        // 逻辑3：子女教育专项
+        if (userProfile.responsibility === 'kids') {
+             if (userProfile.budget === 'high' || userProfile.budget === 'vip') {
+                 // 有孩子且预算高 -> 推荐教育金
+                 comments += " 另外，考虑到孩子未来，现在的现金流可以转化为未来的**教育金**。";
+                 gaps.push({ name: "教育储蓄", label: "专款专用" });
+             }
+        }
+
+        // 逻辑4：养老/资产传承
+        if (userProfile.age === 'senior' || userProfile.age === 'retire' || userProfile.responsibility === 'wealth') {
+             comments += " 步入稳健期，**确定性的现金流**比高风险投资更重要。";
+             gaps.push({ name: "养老年金", label: "生命等长" });
+        }
+
+        // 逻辑5：房贷/负债压力
+        if (userProfile.finance === 'debt') {
+             // 如果没推荐过定寿，这里强烈推荐
+             if(!gaps.some(g=>g.name==="定期寿险")) {
+                 comments += " 考虑到**房贷压力**，定期寿险是防止房产被拍卖的最后一道防线。";
+                 gaps.push({ name: "定期寿险", label: "留爱不留债" });
+             }
+        }
+
+        // 兜底逻辑：如果什么都没推出来（比较少见），给个通用建议
+        if (gaps.length === 0) {
+            comments += " 您的现状相对稳健，建议重点补充**百万医疗险**以应对大额医疗通胀。";
+            gaps.push({ name: "百万医疗", label: "抗通胀" });
+            gaps.push({ name: "意外险", label: "高频风险" });
+        }
+
+        showTanComment(comments);
+        speak(comments, true);
+
+        await wait(1000);
+        
+        // 视觉动效：原拼图缩小并向右下偏移，腾出左侧空间
+        p1.style.transform = "scale(0.8) translate(60px, 40px)";
+        p2.style.transform = "scale(0.8) translate(140px, 40px)";
+        p3.style.transform = "scale(0.8) translate(100px, 120px)";
+
+        await wait(2000); 
+
+        // 动态展示缺口 - 位置调整到左侧 (Left Side)
+        if(gaps[0]) {
+            gap1.style.top = "20%"; gap1.style.left = "10%"; 
+            gap1.querySelector('.gap-text').innerText = gaps[0].name;
+            gap1.querySelector('.gap-label').innerText = gaps[0].label;
+            gap1.classList.add('show');
+        }
+
+        if(gaps[1]) {
+            gap2.style.top = "55%"; gap2.style.left = "10%"; 
+            gap2.querySelector('.gap-text').innerText = gaps[1].name;
+            gap2.querySelector('.gap-label').innerText = gaps[1].label;
+            gap2.classList.add('show');
+        }
+
+        await wait(comments.length * 200 + 2000); // 根据字数动态等待
+        showTanComment("看，经过六维深度扫描，这些才是您当下最需要关注的‘隐形缺口’。保障需要随人生阶段动态调整哦！");
+        speak("看，经过六维深度扫描，这些才是您当下最需要关注的隐形缺口。保障需要随人生阶段动态调整哦！", true);
+    }
+
+    function showTanComment(text) {
+        tanContent.innerHTML = text; // 支持HTML格式
+        tanBox.style.opacity = "1";
+        tanBox.style.transform = "translateX(0)";
+    }
+
+    function wait(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+</script>
+</body>
+</html>

@@ -1,0 +1,535 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>保险人的圣诞树 </title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Ma+Shan+Zheng&display=swap');
+
+        body {
+            background: radial-gradient(ellipse at bottom, #1b2735 0%, #090a0f 100%);
+            overflow: hidden;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            height: 100vh;
+            margin: 0;
+            color: white;
+            user-select: none;
+        }
+
+        /* 沉浸式雪花 */
+        .snowflake {
+            position: absolute; top: -10px; background: white; border-radius: 50%;
+            opacity: 0.8; pointer-events: none; animation: fall linear infinite;
+        }
+        @keyframes fall { to { transform: translateY(105vh); } }
+
+        /* 圣诞树结构 */
+        .tree-container {
+            position: relative;
+            width: 320px;
+            height: 420px;
+            margin-top: 4rem;
+        }
+
+        .tree-layer {
+            width: 0; height: 0;
+            border-left: solid transparent; border-right: solid transparent;
+            border-bottom: solid #0f5132;
+            position: absolute; left: 50%; transform: translateX(-50%);
+            filter: drop-shadow(0 4px 6px rgba(0, 0, 0, 0.3));
+            z-index: 10;
+        }
+        
+        .tree-layer::after {
+            content: ''; position: absolute; left: 50%; transform: translateX(-50%);
+            width: 0; height: 0;
+            border-left: inherit; border-right: inherit; border-bottom: solid rgba(255,255,255,0.15);
+            top: 4px; z-index: 11; pointer-events: none;
+        }
+
+        .trunk {
+            width: 44px; height: 70px; background: #3e2723;
+            position: absolute; left: 50%; transform: translateX(-50%);
+            top: 260px; border-radius: 4px; z-index: 5;
+            box-shadow: inset 0 0 10px rgba(0,0,0,0.5);
+        }
+
+        /* 礼物盒 */
+        .gift-box {
+            width: 28px; height: 28px;
+            cursor: pointer;
+            position: absolute;
+            z-index: 50;
+            transform-origin: top center;
+            animation: gentle-sway 4s ease-in-out infinite alternate;
+            transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+        }
+
+        .gift-box:hover {
+            transform: scale(1.5) rotate(10deg) translateY(-5px);
+            z-index: 100;
+            filter: brightness(1.2);
+        }
+
+        @keyframes gentle-sway {
+            0% { transform: rotate(-3deg); }
+            100% { transform: rotate(3deg); }
+        }
+
+        .gift-inner {
+            width: 100%; height: 100%;
+            border-radius: 4px;
+            position: relative;
+            box-shadow: 2px 2px 5px rgba(0,0,0,0.5);
+        }
+        
+        .gift-inner::before { content: ''; position: absolute; left: 50%; top:0; bottom:0; width: 5px; background: rgba(255,255,255,0.7); transform: translateX(-50%); }
+        .gift-inner::after { content: ''; position: absolute; top: 50%; left:0; right:0; height: 5px; background: rgba(255,255,255,0.7); transform: translateY(-50%); }
+        .gift-bow {
+            position: absolute; top: -4px; left: 50%; transform: translateX(-50%);
+            width: 12px; height: 6px; background: rgba(255,255,255,0.7);
+            border-radius: 4px;
+        }
+
+        /* 呼吸灯 */
+        .light {
+            width: 8px; height: 8px; border-radius: 50%;
+            position: absolute;
+            z-index: 40;
+            animation: twinkle 1.5s infinite alternate;
+        }
+        @keyframes twinkle {
+            0% { opacity: 0.3; transform: scale(0.8); box-shadow: 0 0 0 transparent; }
+            100% { opacity: 1; transform: scale(1.2); box-shadow: 0 0 10px currentColor; }
+        }
+
+        /* 大星星 */
+        .star {
+            position: absolute; top: -30px; left: 50%; transform: translateX(-50%);
+            color: #FFD700; font-size: 48px; z-index: 60;
+            text-shadow: 0 0 20px #FFD700;
+            animation: star-pulse 3s infinite ease-in-out; cursor: pointer;
+            transition: transform 0.3s;
+        }
+        .star:hover { transform: translateX(-50%) scale(1.2) rotate(180deg); }
+
+        @keyframes star-pulse {
+            0%, 100% { text-shadow: 0 0 20px #FFD700; filter: brightness(1); }
+            50% { text-shadow: 0 0 40px #ffea00, 0 0 10px white; filter: brightness(1.3); }
+        }
+
+        /* 模态框通用 */
+        .modal-base {
+            transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        .modal-enter { opacity: 0; transform: scale(0.9) translateY(20px); }
+        .modal-active { opacity: 1; transform: scale(1) translateY(0); }
+
+        .title-font { font-family: 'Ma Shan Zheng', cursive; }
+        .spin-anim:active svg { transform: rotate(360deg); transition: transform 0.5s; }
+    </style>
+</head>
+<body class="flex flex-col items-center justify-center relative">
+
+    <!-- 标题 -->
+    <div class="absolute top-8 text-center z-50 w-full px-4 pointer-events-none">
+        <h1 class="text-5xl md:text-7xl text-red-500 font-bold drop-shadow-[0_4px_4px_rgba(0,0,0,0.8)] title-font mb-2">
+            MERRY CHRISTMAS
+        </h1>
+        <p class="text-yellow-100/90 text-sm md:text-lg font-light tracking-widest drop-shadow-md bg-black/30 inline-block px-4 py-1 rounded-full backdrop-blur-sm">
+            集齐 8 种颜色的职场真相
+        </p>
+    </div>
+
+    <!-- 圣诞树容器 -->
+    <div id="tree-root" class="tree-container">
+        <!-- 树顶星 -->
+        <div class="star" onclick="openOracleModal()">★</div>
+
+        <!-- 树冠层 -->
+        <div class="tree-layer" style="top: 0; border-width: 0 70px 90px 70px; border-bottom-color: #198754;"></div>
+        <div class="tree-layer" style="top: 60px; border-width: 0 100px 110px 100px; border-bottom-color: #146c43;"></div>
+        <div class="tree-layer" style="top: 130px; border-width: 0 130px 130px 130px; border-bottom-color: #0f5132;"></div>
+        
+        <div class="trunk"></div>
+
+        <!-- 动态挂载点 -->
+        <div id="decorations-container"></div>
+        
+        <!-- 地面光晕 -->
+        <div class="absolute -bottom-16 left-1/2 -translate-x-1/2 w-[180%] h-24 bg-green-900/30 rounded-[50%] blur-2xl pointer-events-none"></div>
+    </div>
+
+    <!-- 底部控制栏 -->
+    <div class="fixed bottom-6 left-0 right-0 flex justify-center items-center gap-4 z-40 pointer-events-none">
+        <div class="bg-black/40 backdrop-blur-md px-4 py-2 rounded-full text-xs text-gray-300 pointer-events-auto cursor-pointer hover:text-white transition" onclick="openSettings()">
+            ⚙️ AI 预言设置
+        </div>
+    </div>
+
+    <!-- 1. 灵魂拷问 Modal (更新后的) -->
+    <div id="modal-overlay" class="fixed inset-0 bg-black/80 z-[100] hidden flex items-center justify-center px-4 backdrop-blur-sm transition-opacity duration-300">
+        <div id="modal-content" class="modal-base modal-enter bg-white text-gray-800 rounded-2xl shadow-2xl max-w-md w-full p-8 relative border-4 border-red-700">
+            <button onclick="closeModal('modal')" class="absolute top-3 right-4 text-gray-400 hover:text-red-600 text-3xl font-light">&times;</button>
+            
+            <div class="text-center mb-6">
+                <!-- 动态颜色的礼物图标 -->
+                <div id="gift-icon" class="inline-block p-4 rounded-full text-4xl shadow-md transition-colors duration-300">🎁</div>
+            </div>
+            
+            <!-- 标题 -->
+            <h3 id="question-title" class="text-2xl font-bold text-center text-gray-800 mb-4 title-font tracking-wider"></h3>
+            <div class="w-full h-px bg-gray-200 my-4"></div>
+            
+            <div class="min-h-[100px] flex flex-col justify-center items-center text-center">
+                <p id="question-text" class="text-lg font-semibold text-gray-900 leading-snug"></p>
+                <p id="sub-text" class="text-base text-gray-500 italic mt-3 font-medium"></p>
+            </div>
+        </div>
+    </div>
+
+    <!-- 2. AI 预言 Modal -->
+    <div id="oracle-overlay" class="fixed inset-0 bg-black/80 z-[100] hidden flex items-center justify-center px-4 backdrop-blur-sm">
+        <div id="oracle-content" class="modal-base modal-enter bg-gradient-to-br from-indigo-900 to-purple-900 text-white rounded-2xl shadow-2xl max-w-md w-full p-8 relative border-2 border-yellow-400/50">
+            <button onclick="closeModal('oracle')" class="absolute top-3 right-4 text-white/50 hover:text-yellow-400 text-3xl">&times;</button>
+            <div class="text-center mb-2"><div class="inline-block animate-pulse text-5xl">✨</div></div>
+            <h3 class="text-2xl font-bold text-center text-yellow-300 mb-2 title-font">2025 星象预言</h3>
+            <div class="bg-white/10 rounded-xl p-6 mb-6 backdrop-blur-sm">
+                <p class="text-sm text-gray-300 mb-3 text-center">写下你的 2024 年度关键词</p>
+                <input type="text" id="user-keyword" placeholder="例如：脱落、自保件、迷茫..." class="w-full px-4 py-3 rounded-lg bg-black/30 border border-white/20 text-white placeholder-gray-500 focus:outline-none focus:border-yellow-400 text-center text-lg transition">
+            </div>
+            <button id="predict-btn" onclick="startPrediction()" class="w-full bg-gradient-to-r from-yellow-500 to-amber-600 hover:from-yellow-400 hover:to-amber-500 text-black font-bold py-3 rounded-xl shadow-lg transition transform active:scale-[0.98]">🔮 揭示我的命运</button>
+            <div id="oracle-result" class="mt-4 hidden animate-fade-in">
+                <div class="bg-black/40 rounded-xl p-4 border border-white/10 min-h-[80px] flex items-center justify-center relative">
+                    <p id="oracle-text" class="text-center italic text-yellow-100 text-sm leading-relaxed"></p>
+                    <div id="loading-spinner" class="hidden absolute border-4 border-white/10 border-t-yellow-400 rounded-full w-8 h-8 animate-spin"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 3. 设置 Modal -->
+    <div id="settings-overlay" class="fixed inset-0 bg-black/90 z-[110] hidden flex items-center justify-center px-4">
+        <div class="bg-gray-800 text-white rounded-xl p-6 max-w-sm w-full border border-gray-700">
+            <h3 class="text-lg font-bold mb-4">⚙️ 配置 Gemini API</h3>
+            <p class="text-xs text-gray-400 mb-3">输入 Key 开启实时 AI 生成，否则使用本地库。</p>
+            <input type="password" id="api-key-input" placeholder="Google API Key" class="w-full px-3 py-2 rounded bg-gray-900 border border-gray-600 focus:border-blue-500 text-white text-sm mb-4 outline-none">
+            <div class="flex justify-end gap-3">
+                <button onclick="closeModal('settings')" class="px-4 py-2 text-sm text-gray-400 hover:text-white">取消</button>
+                <button onclick="saveSettings()" class="px-4 py-2 text-sm bg-blue-600 hover:bg-blue-700 rounded-lg text-white font-medium">保存配置</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- 核心：8大主题礼物库 (已清空文案，仅保留标题) ---
+        const giftData = [
+            {
+                id: 1,
+                title: "第一：活人感红利",
+                color: "#ef4444",
+                bg: "bg-red-100",
+                text: "text-red-800"
+            },
+            {
+                id: 2,
+                title: "第二：时代红利 vs 经验红利",
+                color: "#f97316",
+                bg: "bg-orange-100",
+                text: "text-orange-800"
+            },
+            {
+                id: 3,
+                title: "第三：学历门槛 vs 认同门槛",
+                color: "#eab308",
+                bg: "bg-yellow-100",
+                text: "text-yellow-800"
+            },
+            {
+                id: 4,
+                title: "第四：i人的职场瓶颈",
+                color: "#22c55e",
+                bg: "bg-green-100",
+                text: "text-green-800"
+            },
+            {
+                id: 5,
+                title: "第五：人生是旷野还是轨道",
+                color: "#06b6d4",
+                bg: "bg-cyan-100",
+                text: "text-cyan-800"
+            },
+            {
+                id: 6,
+                title: "第六：同行朋友还是竞争对手",
+                color: "#3b82f6",
+                bg: "bg-blue-100",
+                text: "text-blue-800"
+            },
+            {
+                id: 7,
+                title: "第七：您的职场原则是什么",
+                color: "#a855f7",
+                bg: "bg-purple-100",
+                text: "text-purple-800"
+            },
+            {
+                id: 8,
+                title: "第八：您打算哪一年退休",
+                color: "#ec4899",
+                bg: "bg-pink-100",
+                text: "text-pink-800"
+            }
+        ];
+
+        const offlinePredictions = [
+            "🔮 2025预言：你的客户将比你的发量增长得更快。",
+            "🔮 2025预言：心态稳了，业绩爆了。放下助人情结，尊重他人命运。",
+            "🔮 2025预言：不再被拒保。你的专业度将像高冷男神一样让人信服。",
+            "🔮 2025预言：MDRT不再是梦，而是你的日常KPI。准备买新西装吧。",
+            "🔮 2025预言：你会遇到一位直接转账、不画图的神仙客户。",
+            "🔮 2025预言：明年是客户追着你跑——为了加保。"
+        ];
+
+        // --- 核心算法：精准挂载 8 个礼物 ---
+
+        function getRandomInt(min, max) {
+            return Math.floor(Math.random() * (max - min + 1)) + min;
+        }
+        
+        // 洗牌算法
+        function shuffleArray(array) {
+            for (let i = array.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [array[i], array[j]] = [array[j], array[i]];
+            }
+            return array;
+        }
+
+        // 定义三个三角形区域
+        const layers = [
+            { id: 1, topY: 10,  height: 80,  topW: 0, botW: 100 }, // Top
+            { id: 2, topY: 70,  height: 100, topW: 20, botW: 160 }, // Mid
+            { id: 3, topY: 140, height: 110, topW: 40, botW: 220 }  // Bot
+        ];
+
+        function checkOverlap(x, y, size, items) {
+            for (let item of items) {
+                const dx = x - item.x;
+                const dy = y - item.y;
+                if (Math.sqrt(dx*dx + dy*dy) < (size + item.size) * 0.8) return true;
+            }
+            return false;
+        }
+
+        function generateDecorations() {
+            const container = document.getElementById('decorations-container');
+            container.innerHTML = '';
+            const existingItems = [];
+
+            // 复制一份数据并打乱顺序
+            const activeGifts = shuffleArray([...giftData]);
+            
+            // 分配方案：上层2个，中层3个，下层3个，共8个
+            const distribution = [2, 3, 3];
+            let giftIndex = 0;
+
+            distribution.forEach((count, layerIdx) => {
+                const layer = layers[layerIdx];
+                let placed = 0;
+                let attempts = 0;
+
+                while(placed < count && attempts < 200 && giftIndex < activeGifts.length) {
+                    attempts++;
+                    const relY = getRandomInt(10, layer.height - 10);
+                    const y = layer.topY + relY;
+                    const currentWidth = layer.topW + (layer.botW - layer.topW) * (relY / layer.height);
+                    const maxOffset = (currentWidth / 2) - 15; 
+                    if (maxOffset < 0) continue;
+
+                    const xOffset = getRandomInt(-maxOffset, maxOffset);
+                    const x = 160 + xOffset;
+
+                    if (!checkOverlap(x, y, 28, existingItems)) {
+                        createGift(x, y, container, activeGifts[giftIndex]);
+                        existingItems.push({x, y, size: 28});
+                        placed++;
+                        giftIndex++;
+                    }
+                }
+            });
+
+            // 生成灯光
+            const lightCount = 30;
+            let lightsPlaced = 0;
+            let attempts = 0;
+            while(lightsPlaced < lightCount && attempts < 200) {
+                attempts++;
+                const layer = layers[getRandomInt(0, 2)];
+                const relY = getRandomInt(5, layer.height - 5);
+                const y = layer.topY + relY;
+                const currentWidth = layer.topW + (layer.botW - layer.topW) * (relY / layer.height);
+                const maxOffset = (currentWidth / 2) - 5;
+                const xOffset = getRandomInt(-maxOffset, maxOffset);
+                const x = 160 + xOffset;
+
+                if (!checkOverlap(x, y, 10, existingItems)) {
+                    createLight(x, y, container);
+                    existingItems.push({x, y, size: 10});
+                    lightsPlaced++;
+                }
+            }
+        }
+
+        function createGift(x, y, container, data) {
+            const el = document.createElement('div');
+            el.className = 'gift-box';
+            el.style.left = (x - 14) + 'px';
+            el.style.top = y + 'px';
+            el.style.animationDelay = (Math.random() * 2) + 's';
+            
+            el.innerHTML = `
+                <div class="gift-inner" style="background-color: ${data.color}">
+                    <div class="gift-bow"></div>
+                </div>
+            `;
+            // 绑定点击事件，传递具体数据
+            el.onclick = (e) => { e.stopPropagation(); openSpecificQuestion(data); };
+            container.appendChild(el);
+        }
+
+        function createLight(x, y, container) {
+            const colors = ['#ffffff', '#fffbeb', '#fef3c7'];
+            const color = colors[getRandomInt(0, colors.length - 1)];
+            const el = document.createElement('div');
+            el.className = 'light';
+            el.style.left = (x - 4) + 'px';
+            el.style.top = (y - 4) + 'px';
+            el.style.color = color;
+            el.style.animationDelay = (Math.random() * 2) + 's';
+            container.appendChild(el);
+        }
+
+        function refreshTree() {
+            const c = document.getElementById('decorations-container');
+            c.style.opacity = '0';
+            c.style.transform = 'scale(0.95)';
+            setTimeout(() => {
+                generateDecorations();
+                c.style.opacity = '1';
+                c.style.transform = 'scale(1)';
+            }, 300);
+        }
+
+        // --- UI 控制 ---
+        
+        function openSpecificQuestion(data) {
+            // 设置内容
+            document.getElementById('question-title').innerText = data.title;
+            document.getElementById('question-title').className = `text-2xl font-bold text-center mb-4 title-font tracking-wider ${data.text}`;
+            
+            // 修复 undefined 问题：如果数据不存在，则显示空字符串
+            // 这样即使删除了文案，也不会显示 "undefined"
+            document.getElementById('question-text').innerText = data.q || '';
+            document.getElementById('sub-text').innerText = data.sub || '';
+            
+            // 设置图标背景颜色
+            const icon = document.getElementById('gift-icon');
+            icon.className = `inline-block p-4 rounded-full text-4xl shadow-md transition-colors duration-300 ${data.bg} ${data.text}`;
+
+            toggleModal('modal-overlay', true);
+        }
+
+        function toggleModal(id, show) {
+            const overlay = document.getElementById(id);
+            const content = overlay.querySelector('.modal-base');
+            if (show) {
+                overlay.classList.remove('hidden');
+                void overlay.offsetWidth;
+                overlay.classList.remove('opacity-0');
+                if(content) { content.classList.remove('modal-enter'); content.classList.add('modal-active'); }
+            } else {
+                overlay.classList.add('opacity-0');
+                if(content) { content.classList.remove('modal-active'); content.classList.add('modal-enter'); }
+                setTimeout(() => overlay.classList.add('hidden'), 300);
+            }
+        }
+
+        function closeModal(type) {
+            if (type === 'modal') toggleModal('modal-overlay', false);
+            if (type === 'oracle') toggleModal('oracle-overlay', false);
+            if (type === 'settings') toggleModal('settings-overlay', false);
+        }
+
+        function openOracleModal() { toggleModal('oracle-overlay', true); }
+        function openSettings() { 
+            document.getElementById('api-key-input').value = localStorage.getItem('gemini_api_key') || '';
+            toggleModal('settings-overlay', true); 
+        }
+        function saveSettings() {
+            const key = document.getElementById('api-key-input').value.trim();
+            if(key) localStorage.setItem('gemini_api_key', key);
+            else localStorage.removeItem('gemini_api_key');
+            closeModal('settings');
+            alert('设置已保存');
+        }
+
+        async function startPrediction() {
+            const keyword = document.getElementById('user-keyword').value.trim();
+            if(!keyword) { alert('请输入关键词'); return; }
+
+            const resDiv = document.getElementById('oracle-result');
+            const resText = document.getElementById('oracle-text');
+            const spinner = document.getElementById('loading-spinner');
+            const btn = document.getElementById('predict-btn');
+
+            resDiv.classList.remove('hidden');
+            spinner.classList.remove('hidden');
+            resText.innerText = '';
+            btn.disabled = true;
+            btn.innerText = '正在连接宇宙...';
+
+            const apiKey = localStorage.getItem('gemini_api_key');
+            
+            if(apiKey) {
+                try {
+                    const prompt = `User is an insurance agent. Keyword 2024: "${keyword}". Write a short, funny, slightly sarcastic but hopeful fortune for 2025 in Chinese. Max 50 chars.`;
+                    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`, {
+                        method: 'POST', headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
+                    });
+                    const data = await response.json();
+                    resText.innerText = data.candidates[0].content.parts[0].text;
+                } catch(e) {
+                    resText.innerText = offlinePredictions[getRandomInt(0, offlinePredictions.length-1)];
+                }
+            } else {
+                setTimeout(() => {
+                    resText.innerText = offlinePredictions[getRandomInt(0, offlinePredictions.length-1)];
+                }, 1000);
+            }
+
+            setTimeout(() => {
+                spinner.classList.add('hidden');
+                btn.disabled = false;
+                btn.innerText = '再次占卜';
+            }, apiKey ? 0 : 1000);
+        }
+
+        window.onload = () => {
+            for(let i=0; i<50; i++) {
+                const s = document.createElement('div');
+                s.className = 'snowflake';
+                s.style.left = Math.random()*100 + 'vw';
+                s.style.animationDuration = (5+Math.random()*5)+'s';
+                s.style.animationDelay = Math.random()*5+'s';
+                s.style.width = s.style.height = (2+Math.random()*4)+'px';
+                document.body.appendChild(s);
+            }
+            generateDecorations();
+        };
+    </script>
+</body>
+</html>

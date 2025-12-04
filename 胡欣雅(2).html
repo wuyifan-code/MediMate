@@ -1,0 +1,396 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>我的三重防护盾 - Q版糖果拼图 (完美合体版)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=ZCOOL+KuaiLe&family=Nunito:wght@700&display=swap');
+
+        body {
+            background-color: #FFF7ED;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            font-family: 'ZCOOL KuaiLe', 'Nunito', sans-serif;
+            overflow: hidden;
+            user-select: none;
+        }
+
+        #stage {
+            width: 100%;
+            max-width: 800px;
+            aspect-ratio: 16/9;
+            position: relative;
+            overflow: hidden;
+            border-radius: 30px;
+            box-shadow: 0 20px 60px rgba(255, 166, 0, 0.3);
+            background: #fff;
+            border: 8px solid #fff;
+        }
+
+        /* 插画层 */
+        .illustration-layer {
+            position: absolute;
+            inset: 0;
+            z-index: 1;
+            /* 使用 raw 直链 */
+            background-image: url('https://raw.githubusercontent.com/wuyifan-code/04/main/小五.jpg'); 
+            background-size: cover;
+            background-position: center bottom;
+            transform-origin: center center;
+            transition: transform 1.2s cubic-bezier(0.34, 1.56, 0.64, 1), background-position 1.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+        }
+
+        /* 拼图容器 */
+        .puzzle-container {
+            position: absolute;
+            inset: 0;
+            z-index: 10;
+            pointer-events: none;
+        }
+
+        /* 拼图块基础 */
+        .jelly-piece {
+            position: absolute;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            flex-direction: column;
+            opacity: 0;
+            transform: scale(0.5) rotate(-10deg);
+            transition: all 0.8s cubic-bezier(0.34, 1.56, 0.64, 1);
+            filter: drop-shadow(0 5px 0px rgba(0,0,0,0.1));
+        }
+        
+        /* 尺寸类 */
+        .piece-std { width: 140px; height: 140px; }
+        .piece-wide { width: 180px; height: 140px; }
+
+        .puzzle-shape {
+            width: 100%; height: 100%; position: absolute; top: 0; left: 0; z-index: -1;
+            filter: drop-shadow(0 0 0 2px white); 
+        }
+
+        .puzzle-text {
+            color: white; text-shadow: 0 1px 2px rgba(0,0,0,0.2); z-index: 10; text-align: center;
+            transform: translateY(-8px); 
+        }
+
+        .cute-tag {
+            background: #fff; color: #555; padding: 3px 10px; border-radius: 50px; font-size: 13px;
+            margin-top: 4px; box-shadow: 0 3px 0 rgba(0,0,0,0.1);
+            transform: scale(0); transition: transform 0.3s ease;
+        }
+
+        .bounce-in { opacity: 1 !important; transform: scale(1) rotate(0deg) !important; }
+        .tag-show { transform: scale(1) !important; }
+
+        /* 字幕 */
+        .bubble-box {
+            position: absolute; bottom: 25px; left: 50%; transform: translateX(-50%); width: 85%;
+            background: rgba(255, 255, 255, 0.95); border-radius: 20px; padding: 15px 25px;
+            z-index: 50; box-shadow: 0 10px 30px rgba(0,0,0,0.1); border: 3px solid #E5E7EB;
+            display: flex; align-items: center; gap: 15px;
+        }
+        
+        .avatar-circle {
+            width: 50px; height: 50px; background: #FFD700; border-radius: 50%; border: 3px solid white;
+            overflow: hidden; box-shadow: 0 4px 0 rgba(0,0,0,0.1); flex-shrink: 0;
+        }
+        .avatar-circle img { width: 100%; height: 100%; object-fit: cover; }
+        .sub-text { color: #4B5563; font-size: 1.1rem; line-height: 1.4; flex-grow: 1; }
+
+        /* 开始页 */
+        #start-mask {
+            position: absolute; inset: 0; background: rgba(255,247,237, 0.95);
+            backdrop-filter: blur(8px); z-index: 100;
+            display: flex; flex-direction: column; justify-content: center; align-items: center;
+            transition: opacity 0.5s;
+        }
+
+        .btn-candy {
+            margin-top: 20px; padding: 12px 40px; font-size: 1.5rem;
+            background: linear-gradient(to bottom, #60A5FA, #3B82F6); color: white;
+            border: none; border-radius: 50px; cursor: pointer;
+            box-shadow: 0 6px 0 #2563EB, 0 15px 20px rgba(59, 130, 246, 0.4);
+            transition: all 0.1s; position: relative; top: 0;
+        }
+        .btn-candy:disabled {
+            background: linear-gradient(to bottom, #cbd5e1, #94a3b8);
+            box-shadow: none; cursor: not-allowed; opacity: 0.8;
+        }
+        .btn-candy:active:not(:disabled) { top: 6px; box-shadow: 0 0 0 #2563EB, 0 0 0 rgba(0,0,0,0); }
+
+        #phone-pop {
+            position: absolute; right: 20px; bottom: 100px; width: 120px; background: white; padding: 10px;
+            border-radius: 15px; box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+            transform: translateX(200%); transition: transform 0.5s;
+            z-index: 60; text-align: center; border: 4px solid #333;
+        }
+
+        .loading-spinner {
+            width: 20px; height: 20px; border: 3px solid #fff; border-top-color: transparent;
+            border-radius: 50%; animation: spin 1s linear infinite; display: inline-block; margin-right: 8px;
+        }
+        @keyframes spin { 100% { transform: rotate(360deg); } }
+
+    </style>
+</head>
+<body>
+
+<div id="stage">
+    
+    <!-- 背景音乐：raw直链 + 循环播放 -->
+    <audio id="bgm" loop preload="auto">
+        <source src="https://raw.githubusercontent.com/wuyifan-code/04/main/贝加尔湖畔.mp3" type="audio/mpeg">
+    </audio>
+
+    <div class="illustration-layer" id="bg-layer"></div>
+
+    <div class="puzzle-container">
+        
+        <!-- P1: 职工医保 (蓝色) -->
+        <div class="jelly-piece piece-std" id="p1" style="top: 15%; left: 15%;">
+            <svg class="puzzle-shape" viewBox="0 0 100 100" preserveAspectRatio="none">
+                <!-- 宽85, 凸起至105 -->
+                <path d="M10,10 H85 V35 Q105,50 85,65 V90 H60 Q50,70 40,90 H10 V10 Z" fill="#93C5FD" />
+                <path d="M15,15 H80 V20 H15 Z" fill="white" opacity="0.4" />
+            </svg>
+            <div class="puzzle-text">
+                <div class="text-2xl">职工医保</div>
+                <div class="cute-tag">基础兜底</div>
+            </div>
+        </div>
+
+        <!-- P2: 贵惠保 (橙色) -->
+        <div class="jelly-piece piece-std" id="p2" style="top: 15%; left: 65%;">
+            <svg class="puzzle-shape" viewBox="0 0 100 100" preserveAspectRatio="none">
+                <!-- 宽15起, 凹陷至35 (深度20, 匹配P1) -->
+                <path d="M15,10 H90 V90 H65 Q55,70 45,90 H15 V65 Q35,50 15,35 V10 Z" fill="#FDBA74" />
+                <path d="M20,15 H85 V20 H20 Z" fill="white" opacity="0.4" />
+            </svg>
+            <div class="puzzle-text" style="padding-left: 10px;">
+                <div class="text-2xl">贵惠保</div>
+                <div class="cute-tag">补充自费</div>
+            </div>
+        </div>
+
+        <!-- P3: 宠物医保 (绿色) - 加宽适配 -->
+        <div class="jelly-piece piece-wide" id="p3" style="top: 55%; left: 40%;">
+            <svg class="puzzle-shape" viewBox="0 0 180 100" preserveAspectRatio="none">
+                <!-- 双凸起：匹配上方两个凹陷 -->
+                <!-- P1 center x=50, P2 center x=125 relative to here -->
+                <path d="M10,30 H30 Q40,10 50,30 H120 Q130,10 140,30 H170 V80 H10 V30 Z" fill="#6EE7B7" />
+                <path d="M20,35 H160 V40 H20 Z" fill="white" opacity="0.4" />
+            </svg>
+            <div class="puzzle-text" style="margin-top: 15px;">
+                <div class="text-2xl">宠物医保</div>
+                <div class="cute-tag">汪汪队专属</div>
+            </div>
+        </div>
+
+    </div>
+
+    <div id="phone-pop">
+        <div class="text-sm text-gray-400">正在呼叫...</div>
+        <div class="font-bold text-lg my-2">谭老师</div>
+        <div class="flex justify-center gap-1">
+            <span class="w-2 h-2 bg-green-400 rounded-full animate-bounce"></span>
+            <span class="w-2 h-2 bg-green-400 rounded-full animate-bounce" style="animation-delay:0.1s"></span>
+            <span class="w-2 h-2 bg-green-400 rounded-full animate-bounce" style="animation-delay:0.2s"></span>
+        </div>
+    </div>
+
+    <div class="bubble-box">
+        <div class="avatar-circle">
+            <img src="https://raw.githubusercontent.com/wuyifan-code/04/main/头像.jpg" alt="avatar">
+        </div>
+        <div id="sub-text" class="sub-text">准备好开始了吗？</div>
+    </div>
+
+    <div id="start-mask">
+        <h1 class="text-5xl text-blue-500 mb-2 drop-shadow-md">我的三重防护盾</h1>
+        <p class="text-orange-400 text-xl font-bold">✨ Q版糖果拼图 (完美合体版) ✨</p>
+        
+        <div class="mt-6 mb-4 flex flex-col gap-3 items-center w-full max-w-xs">
+             <select id="voice-select" class="w-full bg-white border-2 border-orange-200 rounded-xl px-4 py-2 outline-none text-gray-600 shadow-sm">
+                <option value="">加载语音...</option>
+            </select>
+            
+            <div class="w-full flex items-center gap-3 bg-white px-4 py-2 rounded-xl border-2 border-orange-200 shadow-sm">
+                <span class="text-gray-500 text-sm whitespace-nowrap">🎵 音量:</span>
+                <!-- 默认音量 0.6 -->
+                <input type="range" id="bgm-volume" min="0" max="1" step="0.1" value="0.6" class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-500">
+            </div>
+        </div>
+
+        <button id="start-btn" class="btn-candy" disabled onclick="start()">
+            <span id="loading-icon" class="loading-spinner"></span>
+            <span id="btn-text">音频缓冲中...</span>
+        </button>
+        <p class="mt-4 text-xs text-gray-400" id="status-msg">正在同步资源...</p>
+    </div>
+
+</div>
+
+<script>
+    const script = [
+        { t: 0, text: "嗨大家好~ 我是陈老师！", act: "init" },
+        { t: 3, text: "我的生活很简单：工作、运动...", act: "bg_move_1" },
+        { t: 6, text: "还有就是陪这只圆滚滚的柴犬‘小五’！", act: "bg_move_2" }, 
+        { t: 10, text: "生活得有保障嘛，今天分享我的三块“护身符”！", act: "bg_blur" },
+        { t: 15, text: "第一块是【职工医保】，打工人的基础兜底。", act: "p1_in" },
+        { t: 20, text: "平时看病住院能报销，超有安全感。", act: "p1_tag" },
+        { t: 25, text: "但如果遇到很贵的自费药，这块拼图就不够大啦。", act: "p1_shake" },
+        { t: 30, text: "所以我加了【贵惠保】，咱们贵州人的专属福利。", act: "p2_in" },
+        { t: 35, text: "它专门填补医保不管的缺口，防范大额支出。", act: "p2_tag" },
+        { t: 42, text: "最后是给小五的——", act: "focus_dog" },
+        { t: 45, text: "它要是生病手术，钱包真的很痛诶！", act: "dog_sad" },
+        { t: 50, text: "所以安排了【宠物医保】，汪汪队也要有保障。", act: "p3_in" },
+        { t: 58, text: "你看，拼起来啦！", act: "pre_merge" },
+        { t: 61, text: "职工医保打底，贵惠保补充，宠物医保填坑。", act: "merge" },
+        { t: 68, text: "谭老师，您看这套Q版拼图，是不是严丝合缝呀？", act: "call" },
+        { t: 74, text: "期待您的专业点评哦！", act: "end" }
+    ];
+
+    const totalTime = 78;
+    let timer = null;
+    let currTime = 0;
+
+    // DOM
+    const bg = document.getElementById('bg-layer');
+    const p1 = document.getElementById('p1');
+    const p2 = document.getElementById('p2');
+    const p3 = document.getElementById('p3');
+    const sub = document.getElementById('sub-text');
+    const bgm = document.getElementById('bgm');
+    const startBtn = document.getElementById('start-btn');
+    const btnText = document.getElementById('btn-text');
+    const loadingIcon = document.getElementById('loading-icon');
+    const statusMsg = document.getElementById('status-msg');
+    const volControl = document.getElementById('bgm-volume');
+    
+    // Audio Control
+    let audioReady = false;
+    bgm.volume = 0.6; // 默认音量
+    bgm.load(); // 强制预加载
+
+    bgm.addEventListener('canplaythrough', () => { if(!audioReady) { audioReady = true; enableStartButton(); } });
+    
+    // 允许音量调节
+    volControl.addEventListener('input', (e) => { bgm.volume = e.target.value; });
+
+    // 5秒超时强制就绪（防卡死）
+    setTimeout(() => { if(!audioReady) enableStartButton("尝试播放"); }, 5000);
+
+    function enableStartButton(text = "GO! 开始播放") {
+        startBtn.disabled = false; btnText.innerText = text; loadingIcon.style.display = 'none';
+        statusMsg.innerText = "✅ 资源就绪，请点击开始";
+    }
+
+    // TTS
+    const synth = window.speechSynthesis;
+    let voices = [];
+    speechSynthesis.onvoiceschanged = () => {
+        voices = synth.getVoices().filter(v => v.lang.includes('zh') || v.lang.includes('CN'));
+        const sel = document.getElementById('voice-select');
+        sel.innerHTML = '';
+        if(!voices.length) { sel.innerHTML='<option>默认语音</option>'; return;}
+        voices.forEach((v,i)=>{
+            let opt = document.createElement('option');
+            opt.value=i; opt.text=v.name;
+            sel.appendChild(opt);
+            if(v.name.includes("Google")) sel.selectedIndex=i;
+        });
+    }
+    function speak(txt) {
+        synth.cancel();
+        let u = new SpeechSynthesisUtterance(txt);
+        u.rate = 1.1; u.pitch = 1.2;
+        if(voices.length) u.voice = voices[document.getElementById('voice-select').value];
+        synth.speak(u);
+    }
+
+    function start() {
+        document.getElementById('start-mask').style.opacity = '0';
+        setTimeout(() => document.getElementById('start-mask').style.display = 'none', 500);
+        
+        bgm.play().catch(e => { console.log("Auto-play blocked"); });
+
+        timer = setInterval(() => {
+            currTime += 0.1;
+            let cue = script.find(s => Math.abs(s.t - currTime) < 0.1);
+            if(cue) { sub.innerText = cue.text; speak(cue.text); doAction(cue.act); }
+            if(currTime >= totalTime) clearInterval(timer);
+        }, 100);
+    }
+
+    function doAction(act) {
+        switch(act) {
+            case "init": bg.style.transform = "scale(1)"; break;
+            case "bg_move_1": bg.style.transform = "scale(1.1) translateY(-10px)"; break;
+            case "bg_move_2": bg.style.backgroundPosition = "75% 65%"; bg.style.transform = "scale(1.2)"; break;
+            case "bg_blur": bg.style.filter = "blur(4px) brightness(0.9)"; bg.style.backgroundPosition = "center center"; bg.style.transform = "scale(1)"; break;
+            
+            case "p1_in": p1.classList.add('bounce-in'); p1.style.left = "20%"; break;
+            case "p1_tag": p1.querySelector('.cute-tag').classList.add('tag-show'); break;
+            case "p1_shake": p1.style.transform = "rotate(10deg) scale(1.1)"; setTimeout(()=> p1.style.transform = "rotate(0deg) scale(1)", 200); break;
+
+            case "p2_in": p1.style.left = "15%"; p2.classList.add('bounce-in'); p2.style.left = "70%"; break;
+            case "p2_tag": p2.querySelector('.cute-tag').classList.add('tag-show'); break;
+
+            case "focus_dog": 
+                p1.style.opacity=0.3; p2.style.opacity=0.3; 
+                bg.style.filter = "blur(0) brightness(1)"; 
+                // 修正：大幅上移镜头看狗头 (45%)
+                bg.style.backgroundPosition = "80% 45%"; 
+                bg.style.transform = "scale(1.25)"; 
+                break;
+            case "dog_sad": bg.style.filter = "grayscale(0.5)"; break;
+            case "p3_in": bg.style.filter = "blur(4px) brightness(0.6)"; p3.classList.add('bounce-in'); break;
+
+            case "pre_merge":
+                p1.style.opacity=1; p2.style.opacity=1; p3.style.opacity=1;
+                p1.style.top="20%"; p1.style.left="20%";
+                p2.style.top="20%"; p2.style.left="70%";
+                p3.style.top="70%"; p3.style.left="45%";
+                break;
+            case "merge":
+                /* 像素级合体计算 (零重叠):
+                   P1(Left): Right edge is visual 85% of 140px = 119px.
+                   P2(Right): Left edge is visual 15% of 140px = 21px.
+                   To join: P1_Right_X = P2_Left_X.
+                   Center Seam at 50%.
+                   P1 Left = 50% - 119px.
+                   P2 Left = 50% - 21px.
+                   Distance = 98px.
+                   
+                   P3(Bottom): Width 180. Center aligned.
+                   Top edge connects to P1 bottom (visual 90% = 126px).
+                   P3 top edge visual 30/100 * 140 = 42px.
+                   P3 Top = P1 Top + 126 - 42 = P1 Top + 84px.
+                */
+                // P1
+                p1.style.left = "calc(50% - 119px)"; 
+                p1.style.top = "30%"; p1.style.transform = "scale(1)"; p1.style.zIndex=20;
+
+                // P2 (Separated by exactly 98px from P1)
+                p2.style.left = "calc(50% - 21px)"; 
+                p2.style.top = "30%"; p2.style.transform = "scale(1)"; p2.style.zIndex=19;
+                
+                // P3
+                p3.style.left = "calc(50% - 90px)"; // 180/2
+                p3.style.top = "calc(30% + 84px)";  
+                p3.style.transform = "scale(1)"; p3.style.zIndex=21;
+                break;
+
+            case "call": document.getElementById('phone-pop').style.transform = "translateX(0)"; break;
+        }
+    }
+</script>
+</body>
+</html>
