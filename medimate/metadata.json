@@ -1,0 +1,7 @@
+{
+  "name": "MediMate",
+  "description": "A professional O2O platform matching patients with certified medical escorts (MediMate/医伴), featuring AI matching and elderly-friendly design.",
+  "requestFramePermissions": [
+    "geolocation"
+  ]
+}
