@@ -1,7 +1,0 @@
-<?xml version='1.0' encoding='utf-8'?>
-<resources>
-    <string name="app_name">medimate</string>
-    <string name="title_activity_main">medimate</string>
-    <string name="package_name">com.example.medimate</string>
-    <string name="custom_url_scheme">com.example.medimate</string>
-</resources>
