@@ -172,7 +172,13 @@ export const Notifications: React.FC<NotificationsProps> = ({ lang, onNavigate }
   const [clickedId, setClickedId] = useState<string | null>(null);
   const [showFilterMenu, setShowFilterMenu] = useState(false);
   const [selectedType, setSelectedType] = useState<string | null>(null);
+  const [, setUseMockData] = useState(false);
   const loadingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  const getNotificationDataValue = (notification: Notification, key: string): string | undefined => {
+    const value = notification.data?.[key];
+    return typeof value === 'string' ? value : undefined;
+  };
 
   const refreshData = async () => {
     await loadNotifications();
@@ -211,23 +217,27 @@ export const Notifications: React.FC<NotificationsProps> = ({ lang, onNavigate }
       switch (mappedType) {
         case 'order':
           navigateType = 'order';
-          navigateId = notification.data?.orderId || notification.id;
+          navigateId = getNotificationDataValue(notification, 'orderId') || notification.id;
           break;
         case 'payment':
           navigateType = 'payment';
-          navigateId = notification.data?.orderId || notification.id;
+          navigateId = getNotificationDataValue(notification, 'orderId') || notification.id;
           break;
         case 'refund':
           navigateType = 'refund';
-          navigateId = notification.data?.orderId || notification.id;
+          navigateId = getNotificationDataValue(notification, 'orderId') || notification.id;
           break;
         case 'message':
           navigateType = 'chat';
-          navigateId = notification.data?.senderId || notification.data?.userId || notification.data?.chatId || notification.id;
+          navigateId =
+            getNotificationDataValue(notification, 'senderId') ||
+            getNotificationDataValue(notification, 'userId') ||
+            getNotificationDataValue(notification, 'chatId') ||
+            notification.id;
           break;
         case 'review':
           navigateType = 'review';
-          navigateId = notification.data?.orderId || notification.id;
+          navigateId = getNotificationDataValue(notification, 'orderId') || notification.id;
           break;
         case 'system':
         case 'promotion':
@@ -237,7 +247,10 @@ export const Notifications: React.FC<NotificationsProps> = ({ lang, onNavigate }
           break;
         default:
           navigateType = mappedType;
-          navigateId = notification.data?.orderId || notification.data?.id || notification.id;
+          navigateId =
+            getNotificationDataValue(notification, 'orderId') ||
+            getNotificationDataValue(notification, 'id') ||
+            notification.id;
       }
 
       if (onNavigate) {

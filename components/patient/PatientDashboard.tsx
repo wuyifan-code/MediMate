@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { getHealthTriage } from '../../services/geminiService';
+import { getHealthTriage } from '../../services/aiService';
 import { apiService } from '../../services/apiService';
 import { EscortProfile, Language } from '../../types';
 import { MapPin, MessageCircle, Heart, RefreshCw, Loader2, AlertCircle, Star, ChevronRight, Hospital, ClipboardList } from 'lucide-react';

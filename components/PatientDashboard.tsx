@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { getHealthTriage } from '../services/geminiService';
+import { getHealthTriage } from '../services/aiService';
 import { apiService } from '../services/apiService';
 import { EscortProfile, Language, UserInfo } from '../types';
 import { MapPin, MessageCircle, Repeat2, Heart, BarChart2, Share, Image as ImageIcon, Smile, CalendarClock, BriefcaseMedical, MoreHorizontal, AlertCircle, RefreshCw, Loader2, X, Calendar, Star, FileText, Briefcase } from 'lucide-react';
@@ -100,7 +100,7 @@ export const PatientDashboard: React.FC<PatientDashboardProps> = ({ lang, user, 
   };
 
   const refreshData = async () => {
-    await loadEscorts();
+    await fetchEscorts();
   };
 
   const { isRefreshing, pullDistance, handleTouchStart, handleTouchMove, handleTouchEnd } = usePullToRefresh(refreshData);

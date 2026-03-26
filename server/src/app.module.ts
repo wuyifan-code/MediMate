@@ -14,6 +14,7 @@ import { ReviewsModule } from './modules/reviews/reviews.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { UploadsModule } from './modules/uploads/uploads.module';
 import { HealthModule } from './modules/health/health.module';
+import { AiModule } from './modules/ai/ai.module';
 
 // 算法架构引擎与核心服务
 import { KnowledgeGraphModule } from './modules/knowledge-graph/knowledge-graph.module';
@@ -46,6 +47,7 @@ import { TrustModule } from './modules/trust/trust.module';
     ReviewsModule,
     NotificationsModule,
     UploadsModule,
+    AiModule,
     KnowledgeGraphModule,
     DigitalEvidenceModule,
     NarrativeMedicineModule,

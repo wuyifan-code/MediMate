@@ -63,7 +63,9 @@ export const MessageProvider: React.FC<{ children: React.ReactNode }> = ({ child
   // Initial load and WebSocket setup
   useEffect(() => {
     if (apiService.isLoggedIn()) {
-      refreshUnreadCount();
+      const refreshTimeout = window.setTimeout(() => {
+        void refreshUnreadCount();
+      }, 0);
 
       // Connect WebSocket
       wsService.connect();
@@ -92,11 +94,18 @@ export const MessageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       const interval = setInterval(refreshUnreadCount, 30000);
 
       // Request notification permission on first load
+      let permissionTimeout: number | undefined;
       if (notificationPermission === 'default') {
-        requestNotificationPermission();
+        permissionTimeout = window.setTimeout(() => {
+          void requestNotificationPermission();
+        }, 0);
       }
 
       return () => {
+        clearTimeout(refreshTimeout);
+        if (permissionTimeout !== undefined) {
+          clearTimeout(permissionTimeout);
+        }
         unsubscribeUnread();
         unsubscribeMessage();
         clearInterval(interval);

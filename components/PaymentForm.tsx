@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { loadStripe } from '@stripe/stripe-js';
 import { Elements, CardElement, useStripe, useElements } from '@stripe/react-stripe-js';
+import type { StripeCardElement } from '@stripe/stripe-js';
 import { CreditCard, Smartphone, Loader2, CheckCircle, XCircle, Clock, RefreshCw } from 'lucide-react';
+import { apiService } from '../services/apiService';
 
 const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY || 'pk_test_placeholder');
 
@@ -158,7 +160,7 @@ function StripePaymentForm({ orderId, amount, onSuccess, onError, onCancel }: Pa
 
   const logPaymentStatus = useCallback((status: string, details?: string) => {
     const timestamp = new Date().toISOString();
-    console.log(`[Payment] [${timestamp}] Status: ${status}${details ? ` | Details: ${details}` : ''}`);
+    console.warn(`[Payment] [${timestamp}] Status: ${status}${details ? ` | Details: ${details}` : ''}`);
   }, []);
 
   const clearPaymentTimeout = useCallback(() => {
@@ -225,14 +227,14 @@ function StripePaymentForm({ orderId, amount, onSuccess, onError, onCancel }: Pa
       if (selectedMethod === 'card') {
         logPaymentStatus('PROCESSING', 'Processing card payment via Stripe');
 
-        const { clientSecret, paymentIntentId } = await window.apiService.createStripePaymentIntent(
+        const { clientSecret, paymentIntentId } = await apiService.createStripePaymentIntent(
           orderId,
           import.meta.env.VITE_STRIPE_CURRENCY || 'cny'
         );
 
         logPaymentStatus('PROCESSING', `PaymentIntent created: ${paymentIntentId}`);
 
-        const cardElement = elements.getElement(CardElement);
+        const cardElement = elements.getElement(CardElement) as unknown as StripeCardElement | null;
         if (!cardElement) {
           throw new Error('Card element not found');
         }
@@ -249,6 +251,7 @@ function StripePaymentForm({ orderId, amount, onSuccess, onError, onCancel }: Pa
         }
 
         if (paymentIntent?.status === 'succeeded') {
+          await apiService.confirmStripePayment(paymentIntent.id);
           logPaymentStatus('SUCCESS', `Payment succeeded: ${paymentIntent.id}`);
           handleSuccess();
         } else if (paymentIntent?.status === 'requires_action') {
@@ -258,14 +261,14 @@ function StripePaymentForm({ orderId, amount, onSuccess, onError, onCancel }: Pa
         }
       } else {
         logPaymentStatus('PROCESSING', 'Processing WeChat payment');
-        const { qrCodeUrl } = await window.apiService.createWechatPayment(orderId);
+        await apiService.createWechatPayment(orderId);
         logPaymentStatus('QR_GENERATED', 'WeChat QR code generated');
-        alert('Please scan the QR code with WeChat to pay');
-        handleSuccess();
+        throw new Error('WeChat Pay must be completed in the QR code payment flow.');
       }
-    } catch (error: any) {
-      handleFailure(error.message || 'Payment failed');
-      onError(error.message || 'Payment failed');
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Payment failed';
+      handleFailure(message);
+      onError(message);
     }
   };
 

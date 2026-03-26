@@ -23,7 +23,7 @@
 | Backend | NestJS, TypeScript, Prisma |
 | Database | PostgreSQL |
 | Auth | JWT + Refresh Token |
-| AI | Google Gemini |
+| AI | MiniMax |
 | Mobile | Capacitor |
 
 ## Getting Started
@@ -112,7 +112,6 @@ PORT=3001
 **Client (.env):**
 ```env
 VITE_API_URL=http://localhost:3001/api
-VITE_GEMINI_API_KEY=your-gemini-key
 ```
 
 ## License

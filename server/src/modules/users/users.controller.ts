@@ -37,4 +37,24 @@ export class UsersController {
   ) {
     return this.usersService.updateEscortProfile(req.user.sub, data);
   }
+
+  @Get('notification-settings')
+  @ApiOperation({ summary: 'Get notification settings' })
+  async getNotificationSettings(@Request() req: any) {
+    return this.usersService.getNotificationSettings(req.user.sub);
+  }
+
+  @Patch('notification-settings')
+  @ApiOperation({ summary: 'Update notification settings' })
+  async updateNotificationSettings(
+    @Request() req: any,
+    @Body() settings: {
+      emailNotifications?: boolean;
+      pushNotifications?: boolean;
+      smsNotifications?: boolean;
+      promotionalNotifications?: boolean;
+    },
+  ) {
+    return this.usersService.updateNotificationSettings(req.user.sub, settings);
+  }
 }

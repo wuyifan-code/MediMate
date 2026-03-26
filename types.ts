@@ -12,15 +12,65 @@ export enum ServiceType {
   VIP_TRANSPORT = 'VIP_TRANSPORT' // 专车接送
 }
 
+// Order status aligned with Prisma schema (11 statuses)
+export type OrderStatus =
+  | 'PENDING'    // 待支付
+  | 'PAID'        // 已支付
+  | 'CONFIRMED'   // 已确认
+  | 'MATCHED'     // 已匹配陪诊师
+  | 'IN_PROGRESS' // 服务中
+  | 'EVIDENCE_COLLECTING' // 取证打卡中
+  | 'MEMO_GENERATING'     // 报告生成中
+  | 'COMPLETED'  // 已完成
+  | 'CANCELLED'  // 已取消
+  | 'REFUNDING'  // 退款中
+  | 'REFUNDED';  // 已退款
+
+// Payment status aligned with Prisma
+export enum PaymentStatus {
+  PENDING = 'PENDING',
+  COMPLETED = 'COMPLETED',
+  REFUNDED = 'REFUNDED',
+  FAILED = 'FAILED'
+}
+
+// Refund status aligned with Prisma
+export enum RefundStatus {
+  PENDING = 'PENDING',
+  APPROVED = 'APPROVED',
+  REJECTED = 'REJECTED',
+  PROCESSING = 'PROCESSING',
+  COMPLETED = 'COMPLETED',
+  FAILED = 'FAILED'
+}
+
+// Payment method
+export enum PaymentMethod {
+  WECHAT = 'WECHAT',
+  STRIPE = 'STRIPE',
+  ALIPAY = 'ALIPAY'
+}
+
 export interface EscortProfile {
   id: string;
-  name: string;
+  userId?: string;
   rating: number;
   completedOrders: number;
-  isCertified: boolean; // 2025 Standard
+  isVerified: boolean; // Aligned with Prisma
   specialties: string[];
-  imageUrl: string;
-  distance: string;
+  bio?: string;
+  hourlyRate?: number;
+  latitude?: number;
+  longitude?: number;
+  verificationLevel?: number; // Aligned with Prisma (was 'rank')
+  trustScore?: number;
+  evidenceCount?: number;
+  lastEvidenceAt?: string;
+  certificateNo?: string;
+  // Derived from UserProfile relation
+  name?: string;
+  avatarUrl?: string;
+  distance?: string; // Computed field, not stored
 }
 
 export interface Order {
@@ -28,11 +78,23 @@ export interface Order {
   serviceType: ServiceType;
   hospital: string;
   date: string;
-  status: 'PENDING' | 'MATCHED' | 'COMPLETED';
+  status: OrderStatus;
   price: number;
 }
 
-export type PageType = 'home' | 'explore' | 'notifications' | 'messages' | 'saved' | 'profile' | 'settings' | 'login' | 'register' | 'admin';
+export type PageType =
+  | 'home'
+  | 'explore'
+  | 'notifications'
+  | 'messages'
+  | 'saved'
+  | 'profile'
+  | 'settings'
+  | 'login'
+  | 'register'
+  | 'admin'
+  | 'orders'
+  | 'order-confirmation';
 
 export type Language = 'zh' | 'en';
 
@@ -40,12 +102,29 @@ export interface UserInfo {
   id: string;
   email: string;
   role: UserRole;
+  createdAt?: string;
+  created_at?: string;
   profile?: {
     name?: string;
     phone?: string;
     avatarUrl?: string;
+    avatar_url?: string;
     bio?: string;
   };
+}
+
+export interface CreateOrderRequest {
+  escortId: string;
+  hospitalId?: string;
+  serviceId?: string;
+  serviceType: ServiceType;
+  price: number;
+  duration?: number;
+  appointmentDate?: string;
+  appointmentTime?: string;
+  notes?: string;
+  couponCode?: string;
+  platformFee?: number;
 }
 
 // API Response Types

@@ -1,1 +1,1 @@
-export { EscortDashboard } from './EscortDashboard';
+export { EscortDashboard } from '../EscortDashboard';

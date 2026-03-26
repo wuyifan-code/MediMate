@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { X, Star, BadgeCheck, Calendar, Clock, FileText, Tag, AlertCircle, Loader2 } from 'lucide-react';
 import { apiService } from '../services/apiService';
+import { CreateOrderRequest, ServiceType } from '../types';
 
 export type ServiceTypeKey = 'FULL_PROCESS' | 'APPOINTMENT' | 'REPORT_PICKUP' | 'VIP_TRANSPORT';
 
@@ -193,14 +194,16 @@ export const OrderConfirmation: React.FC<OrderConfirmationProps> = ({
     setError('');
 
     try {
-      const orderData = {
+      const orderData: CreateOrderRequest = {
         escortId: escort.id,
-        serviceType: serviceType,
+        serviceType: serviceType as ServiceType,
+        price: servicePrice,
         appointmentDate: selectedDate,
         appointmentTime: selectedTime,
         duration: duration,
         notes: notes,
-        hospital: ''
+        couponCode: couponCode || undefined,
+        platformFee: PLATFORM_FEE,
       };
 
       const response = await apiService.createAppointment(orderData);

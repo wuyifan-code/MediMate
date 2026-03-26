@@ -101,6 +101,12 @@ model UserProfile {
   age              Int?
   verificationNote String? @map("verification_note") // 审核备注
 
+  // Notification settings
+  emailNotifications    Boolean @default(true) @map("email_notifications")
+  pushNotifications     Boolean @default(true) @map("push_notifications")
+  smsNotifications      Boolean @default(true) @map("sms_notifications")
+  promotionalNotifications Boolean @default(false) @map("promotional_notifications")
+
   // Relation
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 

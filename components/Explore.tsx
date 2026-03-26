@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Language, Hospital, UserInfo } from '../types';
 import { apiService } from '../services/apiService';
-import { Search, MoreHorizontal, Settings, MapPin, TrendingUp, Loader2, Star, Phone, Building2, AlertCircle, RefreshCw, ChevronRight } from 'lucide-react';
+import { Search, Settings, MapPin, Loader2, Star, Phone, Building2, AlertCircle, RefreshCw, ChevronRight } from 'lucide-react';
 
 interface ExploreProps {
   lang: Language;
@@ -58,7 +58,7 @@ const MOCK_HOSPITALS: Hospital[] = [
   },
 ];
 
-export const Explore: React.FC<ExploreProps> = ({ lang, user, onSelectHospital }) => {
+export const Explore: React.FC<ExploreProps> = ({ lang, user: _user, onSelectHospital }) => {
   const [activeTab, setActiveTab] = useState(0);
   const [hospitals, setHospitals] = useState<Hospital[]>([]);
   const [loading, setLoading] = useState(true);
@@ -126,8 +126,8 @@ export const Explore: React.FC<ExploreProps> = ({ lang, user, onSelectHospital }
     if (query.trim().length > 0) {
       setSearching(true);
       try {
-        const results = await apiService.searchHospitals(query);
-        setSearchResults(results);
+        const results = await apiService.searchHospitals({ keyword: query, limit: 20 });
+        setSearchResults(results.data);
       } catch (error) {
         console.error('Search failed:', error);
         // 搜索失败时，在 Mock 数据中过滤

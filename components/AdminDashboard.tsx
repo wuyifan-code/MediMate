@@ -310,29 +310,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ lang }) => {
   const [revenueStats, setRevenueStats] = useState<any>(null);
   const [statsDateRange, setStatsDateRange] = useState({ start: '', end: '' });
 
-  useEffect(() => {
-    loadStats();
-  }, []);
-
-  useEffect(() => {
-    if (activeTab === 'users') loadUsers();
-    if (activeTab === 'orders') loadOrders();
-    if (activeTab === 'escorts') loadEscorts();
-    if (activeTab === 'refunds') loadRefunds();
-    if (activeTab === 'complaints') loadComplaints();
-    if (activeTab === 'statistics') loadStatistics();
-  }, [activeTab, usersPage, ordersPage, escortsPage, refundsPage, complaintsPage]);
-
-  const loadStats = async () => {
+  async function loadStats() {
     try {
       const data = await apiService.getAdminDashboard();
       setStats(data);
     } catch (error) {
       console.error('Failed to load stats:', error);
     }
-  };
+  }
 
-  const loadUsers = async () => {
+  async function loadUsers() {
     try {
       const data = await apiService.getAdminUsers(usersPage, 20, userSearch, userRole);
       setUsers(data.data || []);
@@ -340,9 +327,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ lang }) => {
     } catch (error) {
       console.error('Failed to load users:', error);
     }
-  };
+  }
 
-  const loadOrders = async () => {
+  async function loadOrders() {
     try {
       const data = await apiService.getAdminOrders(ordersPage, 20, orderStatus);
       setOrders(data.data || []);
@@ -350,9 +337,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ lang }) => {
     } catch (error) {
       console.error('Failed to load orders:', error);
     }
-  };
+  }
 
-  const loadEscorts = async () => {
+  async function loadEscorts() {
     try {
       const data = await apiService.getAdminEscorts(escortsPage, 20, escortStatus);
       setEscorts(data.data || []);
@@ -360,9 +347,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ lang }) => {
     } catch (error) {
       console.error('Failed to load escorts:', error);
     }
-  };
+  }
 
-  const loadRefunds = async () => {
+  async function loadRefunds() {
     try {
       const data = await apiService.getRefunds(refundsPage, 20, refundStatus);
       setRefunds(data.data || []);
@@ -370,9 +357,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ lang }) => {
     } catch (error) {
       console.error('Failed to load refunds:', error);
     }
-  };
+  }
 
-  const loadComplaints = async () => {
+  async function loadComplaints() {
     try {
       const data = await apiService.getComplaints(complaintsPage, 20, complaintStatus);
       setComplaints(data.data || []);
@@ -380,9 +367,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ lang }) => {
     } catch (error) {
       console.error('Failed to load complaints:', error);
     }
-  };
+  }
 
-  const loadStatistics = async () => {
+  async function loadStatistics() {
     try {
       const [userData, orderData, revenueData] = await Promise.all([
         apiService.getUserStats(statsDateRange.start, statsDateRange.end),
@@ -395,7 +382,28 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ lang }) => {
     } catch (error) {
       console.error('Failed to load statistics:', error);
     }
-  };
+  }
+
+  useEffect(() => {
+    const timeoutId = window.setTimeout(() => {
+      void loadStats();
+    }, 0);
+
+    return () => clearTimeout(timeoutId);
+  }, []);
+
+  useEffect(() => {
+    const timeoutId = window.setTimeout(() => {
+      if (activeTab === 'users') void loadUsers();
+      if (activeTab === 'orders') void loadOrders();
+      if (activeTab === 'escorts') void loadEscorts();
+      if (activeTab === 'refunds') void loadRefunds();
+      if (activeTab === 'complaints') void loadComplaints();
+      if (activeTab === 'statistics') void loadStatistics();
+    }, 0);
+
+    return () => clearTimeout(timeoutId);
+  }, [activeTab, usersPage, ordersPage, escortsPage, refundsPage, complaintsPage]);
 
   // User edit handlers
   const openUserEditModal = (user: any) => {

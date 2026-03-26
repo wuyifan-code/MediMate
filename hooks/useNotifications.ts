@@ -107,16 +107,19 @@ export function useNotifications(pollInterval = 30000): UseNotificationsReturn {
 
   useEffect(() => {
     // 初始加载
-    refresh();
+    const initialRefreshTimeout = window.setTimeout(() => {
+      void refresh();
+    }, 0);
 
     // 设置轮询
     if (pollInterval > 0) {
       intervalRef.current = setInterval(() => {
-        fetchUnreadCount();
+        void fetchUnreadCount();
       }, pollInterval);
     }
 
     return () => {
+      clearTimeout(initialRefreshTimeout);
       if (intervalRef.current) {
         clearInterval(intervalRef.current);
       }

@@ -1,4 +1,4 @@
-import { Injectable, BadRequestException, NotFoundException, Logger } from '@nestjs/common';
+import { Injectable, BadRequestException, NotFoundException, Logger, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateStripePaymentDto, ConfirmPaymentDto, WechatPaymentDto, RefundDto, CreateRefundDto, ApproveRefundDto } from './dto/payments.dto';
 import Stripe from 'stripe';
@@ -38,6 +38,86 @@ export class PaymentsService {
     };
   }
 
+  private async finalizePaymentSuccess(params: {
+    paymentId: string;
+    orderId: string;
+    userId: string;
+    note: string;
+    paidAt?: Date;
+  }) {
+    const existingPayment = await this.prisma.payment.findUnique({
+      where: { id: params.paymentId },
+    });
+
+    if (!existingPayment) {
+      throw new NotFoundException('Payment not found');
+    }
+
+    if (existingPayment.status === 'COMPLETED') {
+      return existingPayment;
+    }
+
+    const paidAt = params.paidAt || new Date();
+
+    const result = await this.prisma.$transaction(async (tx) => {
+      const updatedPayment = await tx.payment.update({
+        where: { id: params.paymentId },
+        data: {
+          status: 'COMPLETED',
+          paidAt,
+        },
+      });
+
+      await tx.order.update({
+        where: { id: params.orderId },
+        data: {
+          paymentStatus: 'COMPLETED',
+          status: 'CONFIRMED',
+        },
+      });
+
+      await tx.orderStatusHistory.create({
+        data: {
+          orderId: params.orderId,
+          status: 'CONFIRMED',
+          note: params.note,
+        },
+      });
+
+      return updatedPayment;
+    });
+
+    await this.createPaymentNotification(params.userId, params.orderId, 'payment_success');
+    return result;
+  }
+
+  private async markPaymentFailed(stripePaymentIntentId: string) {
+    await this.prisma.payment.updateMany({
+      where: {
+        stripePaymentIntentId,
+        status: { not: 'COMPLETED' as any },
+      },
+      data: { status: 'FAILED' },
+    });
+  }
+
+  private async assertPaymentAccess(orderId: string, userId: string, role?: string) {
+    const payment = await this.prisma.payment.findUnique({
+      where: { orderId },
+      include: { order: true },
+    });
+
+    if (!payment) {
+      throw new NotFoundException('Payment not found');
+    }
+
+    if (role !== 'ADMIN' && payment.order.patientId !== userId) {
+      throw new ForbiddenException('You can only access your own payment');
+    }
+
+    return payment;
+  }
+
   // ========== STRIPE PAYMENTS ==========
 
   async createStripePaymentIntent(userId: string, dto: CreateStripePaymentDto) {
@@ -57,6 +137,10 @@ export class PaymentsService {
       throw new BadRequestException('Order is already paid');
     }
 
+    const existingPayment = await this.prisma.payment.findUnique({
+      where: { orderId: dto.orderId },
+    });
+
     // Create Stripe PaymentIntent
     const paymentIntent = await this.stripe.paymentIntents.create({
       amount: Math.round(order.totalAmount * 100), // Convert to cents
@@ -67,18 +151,34 @@ export class PaymentsService {
       },
     });
 
-    // Create payment record
-    await this.prisma.payment.create({
-      data: {
-        orderId: dto.orderId,
-        userId,
-        amount: order.totalAmount * 100,
-        currency: dto.currency || 'cny',
-        method: 'STRIPE',
-        status: 'PENDING',
-        stripePaymentIntentId: paymentIntent.id,
-      },
-    });
+    if (existingPayment) {
+      await this.prisma.payment.update({
+        where: { id: existingPayment.id },
+        data: {
+          userId,
+          amount: order.totalAmount * 100,
+          currency: dto.currency || 'cny',
+          method: 'STRIPE',
+          status: 'PENDING',
+          stripePaymentIntentId: paymentIntent.id,
+          wechatOrderId: null,
+          wechatPrepayId: null,
+          paidAt: null,
+        },
+      });
+    } else {
+      await this.prisma.payment.create({
+        data: {
+          orderId: dto.orderId,
+          userId,
+          amount: order.totalAmount * 100,
+          currency: dto.currency || 'cny',
+          method: 'STRIPE',
+          status: 'PENDING',
+          stripePaymentIntentId: paymentIntent.id,
+        },
+      });
+    }
 
     return {
       clientSecret: paymentIntent.client_secret,
@@ -86,7 +186,7 @@ export class PaymentsService {
     };
   }
 
-  async confirmStripePayment(dto: ConfirmPaymentDto) {
+  async confirmStripePayment(userId: string, dto: ConfirmPaymentDto) {
     const payment = await this.prisma.payment.findUnique({
       where: { stripePaymentIntentId: dto.paymentIntentId },
       include: { order: true },
@@ -96,40 +196,28 @@ export class PaymentsService {
       throw new NotFoundException('Payment not found');
     }
 
-    // Update payment status
-    await this.prisma.payment.update({
-      where: { id: payment.id },
-      data: {
-        status: 'COMPLETED',
-        paidAt: new Date(),
-      },
-    });
+    if (payment.order.patientId !== userId) {
+      throw new ForbiddenException('You can only confirm your own payment');
+    }
 
-    // Update order payment status
-    await this.prisma.order.update({
-      where: { id: payment.orderId },
-      data: {
-        paymentStatus: 'COMPLETED',
-        status: 'CONFIRMED',
-      },
-    });
+    const paymentIntent = await this.stripe.paymentIntents.retrieve(dto.paymentIntentId);
 
-    // Create order status history
-    await this.prisma.orderStatusHistory.create({
-      data: {
-        orderId: payment.orderId,
-        status: 'CONFIRMED',
-        note: 'Payment confirmed via Stripe',
-      },
-    });
+    if (paymentIntent.status !== 'succeeded') {
+      throw new BadRequestException(`Payment is not completed. Current status: ${paymentIntent.status}`);
+    }
 
-    // Create notification
-    await this.createPaymentNotification(payment.userId, payment.orderId, 'payment_success');
+    await this.finalizePaymentSuccess({
+      paymentId: payment.id,
+      orderId: payment.orderId,
+      userId: payment.userId,
+      note: 'Payment confirmed via verified Stripe status',
+      paidAt: paymentIntent.created ? new Date(paymentIntent.created * 1000) : undefined,
+    });
 
     return { success: true, orderId: payment.orderId };
   }
 
-  async handleStripeWebhook(body: any, signature: string) {
+  async handleStripeWebhook(body: Buffer, signature: string) {
     const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
     if (!webhookSecret) {
       throw new BadRequestException('Webhook secret not configured');
@@ -145,45 +233,25 @@ export class PaymentsService {
       switch (event.type) {
         case 'payment_intent.succeeded': {
           const paymentIntent = event.data.object as Stripe.PaymentIntent;
-          const orderId = paymentIntent.metadata?.orderId;
-          const userId = paymentIntent.metadata?.userId;
+          const paymentRecord = await this.prisma.payment.findUnique({
+            where: { stripePaymentIntentId: paymentIntent.id },
+          });
 
-          if (orderId) {
-            // Update payment record
-            await this.prisma.payment.updateMany({
-              where: { stripePaymentIntentId: paymentIntent.id },
-              data: { status: 'COMPLETED', paidAt: new Date() },
+          if (paymentRecord) {
+            await this.finalizePaymentSuccess({
+              paymentId: paymentRecord.id,
+              orderId: paymentRecord.orderId,
+              userId: paymentRecord.userId,
+              note: 'Payment succeeded via Stripe webhook',
+              paidAt: paymentIntent.created ? new Date(paymentIntent.created * 1000) : undefined,
             });
-
-            // Update order status
-            await this.prisma.order.update({
-              where: { id: orderId },
-              data: { paymentStatus: 'COMPLETED', status: 'CONFIRMED' },
-            });
-
-            // Create order status history
-            await this.prisma.orderStatusHistory.create({
-              data: {
-                orderId,
-                status: 'CONFIRMED',
-                note: 'Payment succeeded via Stripe webhook',
-              },
-            });
-
-            // Create notification
-            if (userId) {
-              await this.createPaymentNotification(userId, orderId, 'payment_success');
-            }
           }
           break;
         }
 
         case 'payment_intent.payment_failed': {
           const failedIntent = event.data.object as Stripe.PaymentIntent;
-          await this.prisma.payment.updateMany({
-            where: { stripePaymentIntentId: failedIntent.id },
-            data: { status: 'FAILED' },
-          });
+          await this.markPaymentFailed(failedIntent.id);
           break;
         }
       }
@@ -343,15 +411,8 @@ export class PaymentsService {
   /**
    * Query WeChat payment status
    */
-  async queryWechatPayment(orderId: string) {
-    const payment = await this.prisma.payment.findUnique({
-      where: { orderId },
-      include: { order: true },
-    });
-
-    if (!payment) {
-      throw new NotFoundException('Payment not found');
-    }
+  async queryWechatPayment(userId: string, orderId: string) {
+    const payment = await this.assertPaymentAccess(orderId, userId);
 
     // If WeChat Pay is configured, query real status
     if (this.wechatConfig.mchid && payment.wechatOrderId && payment.status === 'PENDING') {
@@ -374,35 +435,12 @@ export class PaymentsService {
 
         const tradeState = response.data.trade_state;
         if (tradeState === 'SUCCESS') {
-          // Update payment status
-          await this.prisma.payment.update({
-            where: { id: payment.id },
-            data: {
-              status: 'COMPLETED',
-              paidAt: new Date(),
-            },
+          await this.finalizePaymentSuccess({
+            paymentId: payment.id,
+            orderId,
+            userId: payment.userId,
+            note: 'Payment confirmed via WeChat Pay query',
           });
-
-          // Update order status
-          await this.prisma.order.update({
-            where: { id: orderId },
-            data: {
-              paymentStatus: 'COMPLETED',
-              status: 'CONFIRMED',
-            },
-          });
-
-          // Create order status history
-          await this.prisma.orderStatusHistory.create({
-            data: {
-              orderId,
-              status: 'CONFIRMED',
-              note: 'Payment confirmed via WeChat Pay query',
-            },
-          });
-
-          // Create notification
-          await this.createPaymentNotification(payment.userId, orderId, 'payment_success');
 
           return { ...payment, status: 'COMPLETED', tradeState };
         }
@@ -461,35 +499,12 @@ export class PaymentsService {
       }
 
       if (trade_state === 'SUCCESS') {
-        // Update payment status
-        await this.prisma.payment.update({
-          where: { id: payment.id },
-          data: {
-            status: 'COMPLETED',
-            paidAt: new Date(),
-          },
+        await this.finalizePaymentSuccess({
+          paymentId: payment.id,
+          orderId,
+          userId: payment.userId,
+          note: `Payment confirmed via WeChat Pay. Transaction ID: ${transaction_id}`,
         });
-
-        // Update order status
-        await this.prisma.order.update({
-          where: { id: orderId },
-          data: {
-            paymentStatus: 'COMPLETED',
-            status: 'CONFIRMED',
-          },
-        });
-
-        // Create order status history
-        await this.prisma.orderStatusHistory.create({
-          data: {
-            orderId,
-            status: 'CONFIRMED',
-            note: `Payment confirmed via WeChat Pay. Transaction ID: ${transaction_id}`,
-          },
-        });
-
-        // Create notification
-        await this.createPaymentNotification(payment.userId, orderId, 'payment_success');
       }
 
       return { 
@@ -969,9 +984,10 @@ export class PaymentsService {
 
   // ========== QUERIES ==========
 
-  async getPaymentByOrderId(orderId: string) {
+  async getPaymentByOrderId(orderId: string, userId: string, role?: string) {
+    const payment = await this.assertPaymentAccess(orderId, userId, role);
     return this.prisma.payment.findUnique({
-      where: { orderId },
+      where: { id: payment.id },
       include: {
         refunds: {
           where: {
@@ -982,17 +998,28 @@ export class PaymentsService {
     });
   }
 
-  async getRefundById(refundId: string) {
-    return this.prisma.refund.findUnique({
+  async getRefundById(refundId: string, userId: string, role?: string) {
+    const refund = await this.prisma.refund.findUnique({
       where: { id: refundId },
       include: {
         payment: {
           select: {
+            orderId: true,
             method: true,
             amount: true,
           },
         },
       },
     });
+
+    if (!refund) {
+      throw new NotFoundException('Refund not found');
+    }
+
+    if (role !== 'ADMIN' && refund.userId !== userId) {
+      throw new ForbiddenException('You can only access your own refund');
+    }
+
+    return refund;
   }
 }

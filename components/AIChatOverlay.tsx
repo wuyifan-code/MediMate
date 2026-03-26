@@ -1,8 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { getAiAssistantResponse } from '../services/geminiService';
+import { getAiAssistantResponse } from '../services/aiService';
 import { X, Send, Sparkles, BrainCircuit, User, History, Plus, MessageSquare, Trash2, ChevronRight, ArrowLeft, Copy, ThumbsUp, ThumbsDown, Zap, Smile, Info, Lightbulb, Hospital, FileSearch } from 'lucide-react';
 import { Language } from '../types';
-import ReactMarkdown from 'react-markdown';
 
 interface AIChatOverlayProps {
   isOpen: boolean;
@@ -24,13 +23,28 @@ interface ChatSession {
 
 type ChatMode = 'standard' | 'fun';
 
+const getCurrentTimestamp = () => Date.now();
+const loadStoredSessions = (): ChatSession[] => {
+  const savedSessions = localStorage.getItem('medimate_chat_history');
+  if (!savedSessions) {
+    return [];
+  }
+
+  try {
+    return JSON.parse(savedSessions);
+  } catch (error) {
+    console.error('Failed to parse chat history', error);
+    return [];
+  }
+};
+
 export const AIChatOverlay: React.FC<AIChatOverlayProps> = ({ isOpen, onClose, lang }) => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputValue, setInputValue] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [mode, setMode] = useState<ChatMode>('standard');
   
-  const [sessions, setSessions] = useState<ChatSession[]>([]);
+  const [sessions, setSessions] = useState<ChatSession[]>(loadStoredSessions);
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   const [showHistory, setShowHistory] = useState(false);
 
@@ -82,31 +96,20 @@ export const AIChatOverlay: React.FC<AIChatOverlayProps> = ({ isOpen, onClose, l
   }[lang];
 
   useEffect(() => {
-    const savedSessions = localStorage.getItem('medimate_chat_history');
-    if (savedSessions) {
-      try {
-        setSessions(JSON.parse(savedSessions));
-      } catch (e) {
-        console.error("Failed to parse chat history", e);
-      }
-    }
-  }, []);
-
-  useEffect(() => {
     localStorage.setItem('medimate_chat_history', JSON.stringify(sessions));
   }, [sessions]);
-
-  useEffect(() => {
-    if (isOpen && !showHistory) {
-      scrollToBottom();
-    }
-  }, [isOpen, messages, showHistory]);
 
   const scrollToBottom = () => {
     setTimeout(() => {
       messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
     }, 100);
   };
+
+  useEffect(() => {
+    if (isOpen && !showHistory) {
+      scrollToBottom();
+    }
+  }, [isOpen, messages, showHistory]);
 
   const startNewChat = () => {
     setMessages([]);
@@ -128,7 +131,7 @@ export const AIChatOverlay: React.FC<AIChatOverlayProps> = ({ isOpen, onClose, l
   };
 
   const updateCurrentSession = (newMessages: Message[]) => {
-    const now = Date.now();
+    const now = getCurrentTimestamp();
     if (currentSessionId) {
       setSessions(prev => prev.map(s => s.id === currentSessionId ? { ...s, messages: newMessages, timestamp: now } : s));
     } else {
@@ -153,7 +156,7 @@ export const AIChatOverlay: React.FC<AIChatOverlayProps> = ({ isOpen, onClose, l
 
     const apiHistory = messagesWithUser.map(m => ({
       role: m.role,
-      parts: [{ text: m.text }]
+      text: m.text
     }));
 
     let finalPrompt = userText;
@@ -169,7 +172,7 @@ export const AIChatOverlay: React.FC<AIChatOverlayProps> = ({ isOpen, onClose, l
     // 使用流式响应
     const responseText = await getAiAssistantResponse(
       finalPrompt, 
-      apiHistory.slice(0, -1) as any,
+      apiHistory.slice(0, -1),
       (chunk: string) => {
         // 流式接收并更新消息
         modelResponse += chunk;
@@ -179,7 +182,7 @@ export const AIChatOverlay: React.FC<AIChatOverlayProps> = ({ isOpen, onClose, l
         // 更新会话历史
         setSessions(prev => {
           if (currentSessionId) {
-            return prev.map(s => s.id === currentSessionId ? { ...s, messages: updatedMessages, timestamp: Date.now() } : s);
+            return prev.map(s => s.id === currentSessionId ? { ...s, messages: updatedMessages, timestamp: getCurrentTimestamp() } : s);
           }
           return prev;
         });
@@ -193,7 +196,7 @@ export const AIChatOverlay: React.FC<AIChatOverlayProps> = ({ isOpen, onClose, l
 
     setSessions(prev => {
       if (currentSessionId) {
-        return prev.map(s => s.id === currentSessionId ? { ...s, messages: finalMessages, timestamp: Date.now() } : s);
+        return prev.map(s => s.id === currentSessionId ? { ...s, messages: finalMessages, timestamp: getCurrentTimestamp() } : s);
       }
       return prev;
     });
@@ -229,8 +232,8 @@ export const AIChatOverlay: React.FC<AIChatOverlayProps> = ({ isOpen, onClose, l
                 <div className="flex flex-col">
                   <span className="font-bold text-slate-900 leading-none">{t.title}</span>
                   <span className="text-[10px] text-teal-600 font-bold uppercase tracking-wider mt-1 flex items-center gap-1">
-                    <span className="h-1 w-1 bg-teal-500 rounded-full animate-pulse"></span> 
-                    Active Model: Qwen-Plus
+                    <span className="h-1 w-1 bg-teal-500 rounded-full animate-pulse"></span>
+                    AI Assistant
                   </span>
                 </div>
               )}
@@ -302,69 +305,8 @@ export const AIChatOverlay: React.FC<AIChatOverlayProps> = ({ isOpen, onClose, l
                           <div className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
                               <div className={`px-5 py-3.5 rounded-3xl text-[15px] leading-relaxed ${msg.role === 'user' ? 'bg-gradient-to-br from-teal-500 to-emerald-500 text-white rounded-tr-sm shadow-lg shadow-teal-500/10' : 'bg-white border border-slate-100 text-slate-900 rounded-tl-sm'}`}>
                                   {msg.role === 'model' ? (
-                                    <div className="prose prose-sm max-w-none">
-                                      <ReactMarkdown 
-                                        components={{
-                                          code({ node, inline, className, children, ...props }) {
-                                            const match = /language-(\w+)/.exec(className || '');
-                                            return !inline && match ? (
-                                              <pre className="bg-slate-900 text-slate-100 rounded-lg p-3 text-xs overflow-x-auto my-2">
-                                                <code className={className} {...props}>
-                                                  {children}
-                                                </code>
-                                              </pre>
-                                            ) : (
-                                              <code className="bg-slate-100 text-slate-900 px-1 py-0.5 rounded text-xs">
-                                                {children}
-                                              </code>
-                                            );
-                                          },
-                                          ul({ node, children, ...props }) {
-                                            return (
-                                              <ul className="list-disc pl-5 my-2 space-y-1">
-                                                {children}
-                                              </ul>
-                                            );
-                                          },
-                                          ol({ node, children, ...props }) {
-                                            return (
-                                              <ol className="list-decimal pl-5 my-2 space-y-1">
-                                                {children}
-                                              </ol>
-                                            );
-                                          },
-                                          strong({ node, children, ...props }) {
-                                            return (
-                                              <strong className="font-bold text-slate-900">
-                                                {children}
-                                              </strong>
-                                            );
-                                          },
-                                          em({ node, children, ...props }) {
-                                            return (
-                                              <em className="italic text-slate-700">
-                                                {children}
-                                              </em>
-                                            );
-                                          },
-                                          p({ node, children, ...props }) {
-                                            return (
-                                              <p className="my-2">
-                                                {children}
-                                              </p>
-                                            );
-                                          },
-                                          blockquote({ node, children, ...props }) {
-                                            return (
-                                              <blockquote className="border-l-4 border-teal-500 pl-3 italic text-slate-600 my-2">
-                                                {children}
-                                              </blockquote>
-                                            );
-                                          }
-                                        }}
-                                      >
-                                        {msg.text}
-                                      </ReactMarkdown>
+                                    <div className="whitespace-pre-wrap break-words">
+                                      {msg.text}
                                     </div>
                                   ) : (
                                     msg.text
@@ -446,7 +388,7 @@ export const AIChatOverlay: React.FC<AIChatOverlayProps> = ({ isOpen, onClose, l
               </div>
               <p className="text-[10px] text-center text-slate-400 mt-4 flex items-center justify-center gap-1">
                 <Sparkles className="h-3 w-3" />
-                AI 助手由通义千问提供，医疗建议仅供参考。
+                AI 助手提供医疗建议，仅供参考。
               </p>
             </div>
           )}

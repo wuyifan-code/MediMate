@@ -74,22 +74,23 @@ const AppWithMessages: React.FC<{ unreadCount: number }> = ({ unreadCount }) => 
             try {
               const fullProfile = await apiService.getUserProfile();
               if (fullProfile) {
+                const profile = fullProfile.profile || fullProfile;
                 setUser({
                   ...userData,
                   profile: {
-                    name: fullProfile.name,
-                    phone: fullProfile.phone,
-                    avatarUrl: fullProfile.avatar_url,
-                    bio: fullProfile.bio
+                    name: profile.name,
+                    phone: profile.phone,
+                    avatarUrl: profile.avatarUrl || profile.avatar_url,
+                    bio: profile.bio
                   }
                 });
               }
-            } catch (profileError) {
-              console.log('Using cached user data');
+            } catch {
+              console.warn('Using cached user data');
             }
           }
-        } catch (error) {
-          console.log('Failed to restore session');
+        } catch {
+          console.warn('Failed to restore session');
         }
       }
     };
@@ -100,12 +101,6 @@ const AppWithMessages: React.FC<{ unreadCount: number }> = ({ unreadCount }) => 
     await apiService.logout();
     setUser(null);
     setRole(UserRole.GUEST);
-    setCurrentPage('home');
-  };
-
-  const handleLoginSuccess = (userData: UserInfo) => {
-    setUser(userData);
-    setRole(userData.role);
     setCurrentPage('home');
   };
 
@@ -127,12 +122,14 @@ const AppWithMessages: React.FC<{ unreadCount: number }> = ({ unreadCount }) => 
   
   // Close drawer on route change
   useEffect(() => {
-    setMobileDrawerOpen(false);
-    if (currentPage !== 'messages') {
-      const timeout = setTimeout(() => setSelectedEscortId(null), 0);
-      return () => clearTimeout(timeout);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    const timeout = setTimeout(() => {
+      setMobileDrawerOpen(false);
+      if (currentPage !== 'messages') {
+        setSelectedEscortId(null);
+      }
+    }, 0);
+
+    return () => clearTimeout(timeout);
   }, [currentPage]);
 
   const handleInteract = (featureName: string) => {
@@ -144,7 +141,7 @@ const AppWithMessages: React.FC<{ unreadCount: number }> = ({ unreadCount }) => 
       // Show service type selection modal
       setShowOrderModal(true);
     } else {
-      console.log(`User interacted with: ${featureName}`);
+      console.warn(`User interacted with: ${featureName}`);
     }
   };
 
@@ -156,11 +153,6 @@ const AppWithMessages: React.FC<{ unreadCount: number }> = ({ unreadCount }) => 
     setCurrentPage('explore');
   };
 
-  const handleSelectEscortForOrder = (escort: EscortProfile) => {
-    setSelectedEscortForOrder(escort);
-    setCurrentPage('order-confirmation');
-  };
-
   const handleOrderSuccess = (orderId: string) => {
     setSelectedEscortForOrder(null);
     setCurrentPage('orders');
@@ -169,7 +161,7 @@ const AppWithMessages: React.FC<{ unreadCount: number }> = ({ unreadCount }) => 
   };
 
   // Handle search
-  const handleSearch = (query: string, type: 'hospital' | 'escort' | 'all') => {
+  const handleSearch = (query: string, _type: 'hospital' | 'escort' | 'all') => {
     setSearchQuery(query);
     setIsSearchMode(true);
   };
@@ -266,7 +258,7 @@ const AppWithMessages: React.FC<{ unreadCount: number }> = ({ unreadCount }) => 
              <div className="bg-slate-50 dark:bg-slate-800 rounded-2xl overflow-hidden mb-4 border border-slate-100 dark:border-slate-700">
                 <h2 className="text-xl font-black px-4 py-3 text-slate-900 dark:text-white">{t.popular}</h2>
                 {popularHospitals.length > 0 ? (
-                  popularHospitals.map((hospital, idx) => (
+                  popularHospitals.map((hospital) => (
                     <div
                       key={hospital.id}
                       className="px-4 py-3 hover:bg-slate-100 dark:hover:bg-slate-700 cursor-pointer transition-colors relative"
@@ -568,9 +560,6 @@ const AppWithMessages: React.FC<{ unreadCount: number }> = ({ unreadCount }) => 
   };
 
   return (
-    <ErrorBoundary>
-    <ThemeProvider>
-    <MessageProvider>
     <div className="min-h-screen bg-white dark:bg-slate-900 text-black dark:text-white font-sans flex justify-center relative">
 
        {currentPage === 'login' && (
@@ -799,11 +788,7 @@ const AppWithMessages: React.FC<{ unreadCount: number }> = ({ unreadCount }) => 
              )}
          </div>
        </div>
-
     </div>
-    </MessageProvider>
-    </ThemeProvider>
-    </ErrorBoundary>
   );
 };
 

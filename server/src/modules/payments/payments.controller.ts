@@ -14,6 +14,7 @@ import {
   DefaultValuePipe,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
+import type { Request as ExpressRequest } from 'express';
 import { PaymentsService } from './payments.service';
 import {
   CreateStripePaymentDto,
@@ -43,24 +44,32 @@ export class PaymentsController {
     @Request() req: any,
     @Body() dto: CreateStripePaymentDto,
   ) {
-    return this.paymentsService.createStripePaymentIntent(req.user.sub, dto);
+    const paymentIntent = await this.paymentsService.createStripePaymentIntent(req.user.sub, dto);
+    return {
+      success: true,
+      data: paymentIntent,
+    };
   }
 
   @Post('stripe/confirm')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Confirm Stripe payment' })
-  async confirmStripePayment(@Body() dto: ConfirmPaymentDto) {
-    return this.paymentsService.confirmStripePayment(dto);
+  async confirmStripePayment(@Request() req: any, @Body() dto: ConfirmPaymentDto) {
+    const payment = await this.paymentsService.confirmStripePayment(req.user.sub, dto);
+    return {
+      success: true,
+      data: payment,
+    };
   }
 
   @Post('stripe/webhook')
   @ApiOperation({ summary: 'Handle Stripe webhook' })
   async handleStripeWebhook(
-    @Req() req: RawBodyRequest<Request>,
+    @Req() req: RawBodyRequest<ExpressRequest>,
     @Headers('stripe-signature') signature: string,
   ) {
-    const body = req.rawBody?.toString() || '';
+    const body = req.rawBody || Buffer.from('');
     return this.paymentsService.handleStripeWebhook(body, signature);
   }
 
@@ -74,7 +83,11 @@ export class PaymentsController {
     @Request() req: any,
     @Body() dto: WechatPaymentDto,
   ) {
-    return this.paymentsService.createWechatPayment(req.user.sub, dto);
+    const payment = await this.paymentsService.createWechatPayment(req.user.sub, dto);
+    return {
+      success: true,
+      data: payment,
+    };
   }
 
   @Post('wechat/notify')
@@ -87,8 +100,12 @@ export class PaymentsController {
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Query WeChat payment status' })
-  async queryWechatPayment(@Param('orderId') orderId: string) {
-    return this.paymentsService.queryWechatPayment(orderId);
+  async queryWechatPayment(@Request() req: any, @Param('orderId') orderId: string) {
+    const payment = await this.paymentsService.queryWechatPayment(req.user.sub, orderId);
+    return {
+      success: true,
+      data: payment,
+    };
   }
 
   // ========== REFUNDS ==========
@@ -98,7 +115,11 @@ export class PaymentsController {
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Create refund request' })
   async createRefund(@Request() req: any, @Body() dto: CreateRefundDto) {
-    return this.paymentsService.createRefund(req.user.sub, dto);
+    const refund = await this.paymentsService.createRefund(req.user.sub, dto);
+    return {
+      success: true,
+      data: refund,
+    };
   }
 
   @Get('refunds/my')
@@ -110,7 +131,11 @@ export class PaymentsController {
     @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
     @Query('limit', new DefaultValuePipe(20), ParseIntPipe) limit: number,
   ) {
-    return this.paymentsService.getUserRefunds(req.user.sub, page, limit);
+    const refunds = await this.paymentsService.getUserRefunds(req.user.sub, page, limit);
+    return {
+      success: true,
+      data: refunds,
+    };
   }
 
   @Get('refunds')
@@ -123,7 +148,11 @@ export class PaymentsController {
     @Query('limit', new DefaultValuePipe(20), ParseIntPipe) limit: number,
     @Query('status') status?: string,
   ) {
-    return this.paymentsService.getAllRefunds(page, limit, status);
+    const refunds = await this.paymentsService.getAllRefunds(page, limit, status);
+    return {
+      success: true,
+      data: refunds,
+    };
   }
 
   @Post('refunds/:refundId/approve')
@@ -136,7 +165,11 @@ export class PaymentsController {
     @Param('refundId') refundId: string,
     @Body() dto: ApproveRefundDto,
   ) {
-    return this.paymentsService.approveRefund(refundId, req.user.sub, dto);
+    const refund = await this.paymentsService.approveRefund(refundId, req.user.sub, dto);
+    return {
+      success: true,
+      data: refund,
+    };
   }
 
   @Post('refunds/:refundId/reject')
@@ -149,15 +182,23 @@ export class PaymentsController {
     @Param('refundId') refundId: string,
     @Body() dto: ApproveRefundDto,
   ) {
-    return this.paymentsService.rejectRefund(refundId, req.user.sub, dto);
+    const refund = await this.paymentsService.rejectRefund(refundId, req.user.sub, dto);
+    return {
+      success: true,
+      data: refund,
+    };
   }
 
   @Get('refunds/:refundId')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Get refund details' })
-  async getRefundById(@Param('refundId') refundId: string) {
-    return this.paymentsService.getRefundById(refundId);
+  async getRefundById(@Request() req: any, @Param('refundId') refundId: string) {
+    const refund = await this.paymentsService.getRefundById(refundId, req.user.sub, req.user.role);
+    return {
+      success: true,
+      data: refund,
+    };
   }
 
   // ========== LEGACY REFUND ==========
@@ -167,7 +208,11 @@ export class PaymentsController {
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Request refund (Legacy)' })
   async refundPayment(@Request() req: any, @Body() dto: RefundDto) {
-    return this.paymentsService.refundPayment(req.user.sub, dto);
+    const refund = await this.paymentsService.refundPayment(req.user.sub, dto);
+    return {
+      success: true,
+      data: refund,
+    };
   }
 
   // ========== QUERIES ==========
@@ -176,7 +221,11 @@ export class PaymentsController {
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Get payment by order ID' })
-  async getPaymentByOrderId(@Param('orderId') orderId: string) {
-    return this.paymentsService.getPaymentByOrderId(orderId);
+  async getPaymentByOrderId(@Request() req: any, @Param('orderId') orderId: string) {
+    const payment = await this.paymentsService.getPaymentByOrderId(orderId, req.user.sub, req.user.role);
+    return {
+      success: true,
+      data: payment,
+    };
   }
 }

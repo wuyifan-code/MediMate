@@ -1,5 +1,5 @@
-import axios, { AxiosInstance, AxiosRequestConfig, AxiosResponse, AxiosError } from 'axios';
-import { UserRole, Hospital, Appointment, HospitalSearchParams, EscortSearchParams, EscortProfile, SearchSuggestion, PaginatedResponse } from '../types';
+import axios, { AxiosInstance, AxiosRequestConfig, AxiosResponse, AxiosError, InternalAxiosRequestConfig } from 'axios';
+import { UserRole, Hospital, Appointment, HospitalSearchParams, EscortSearchParams, EscortProfile, SearchSuggestion, PaginatedResponse, CreateOrderRequest } from '../types';
 
 // 定义API响应类型
 interface ApiResponse<T = any> {
@@ -75,6 +75,53 @@ class ApiService {
   }
 
   // 带重试的请求方法
+  private extractPayload<T>(payload: ApiResponse<T> | T): T {
+    if (
+      payload &&
+      typeof payload === 'object' &&
+      'success' in (payload as Record<string, unknown>)
+    ) {
+      return ((payload as ApiResponse<T>).data ?? null) as T;
+    }
+
+    return payload as T;
+  }
+
+  private normalizeUserProfile(user: any): any {
+    if (!user) return user;
+
+    const profile = user.profile
+      ? {
+          ...user.profile,
+          avatar_url: user.profile.avatar_url || user.profile.avatarUrl,
+          avatarUrl: user.profile.avatarUrl || user.profile.avatar_url,
+        }
+      : undefined;
+
+    const escortProfile = user.escortProfile
+      ? {
+          ...user.escortProfile,
+          completedOrders: user.escortProfile.completedOrders ?? user.escortProfile.completed_orders,
+          isVerified: user.escortProfile.isVerified ?? user.escortProfile.is_verified ?? user.escortProfile.isCertified,
+          hourlyRate: user.escortProfile.hourlyRate ?? user.escortProfile.hourly_rate,
+          verificationLevel: user.escortProfile.verificationLevel ?? user.escortProfile.rank,
+          // Derive name and avatarUrl from related user profile
+          name: user.profile?.name,
+          avatarUrl: user.profile?.avatarUrl || user.profile?.avatar_url,
+        }
+      : undefined;
+
+    return {
+      ...user,
+      created_at: user.created_at || user.createdAt,
+      createdAt: user.createdAt || user.created_at,
+      updated_at: user.updated_at || user.updatedAt,
+      updatedAt: user.updatedAt || user.updated_at,
+      profile,
+      escortProfile,
+    };
+  }
+
   private async requestWithRetry<T>(
     config: AxiosRequestConfig,
     retries = this.MAX_RETRIES
@@ -100,7 +147,7 @@ class ApiService {
   // 请求拦截器
   private setupRequestInterceptor(): void {
     this.axiosInstance.interceptors.request.use(
-      (config: AxiosRequestConfig): AxiosRequestConfig => {
+      (config: InternalAxiosRequestConfig): InternalAxiosRequestConfig => {
         // 获取token并添加到请求头
         const token = this.getToken();
         if (token && config.headers) {
@@ -450,10 +497,10 @@ class ApiService {
   // 获取附近陪诊师
   public async getNearbyEscorts(latitude: number, longitude: number, radius?: number): Promise<EscortProfile[]> {
     try {
-      const response = await this.axiosInstance.get<ApiResponse<EscortProfile[]>>('/escorts/nearby', {
+      const response = await this.axiosInstance.get<ApiResponse<EscortProfile[]> | EscortProfile[]>('/escorts/nearby', {
         params: { latitude, longitude, radius },
       });
-      return response.data.success && response.data.data ? response.data.data : [];
+      return this.extractPayload<EscortProfile[]>(response.data) || [];
     } catch (error) {
       console.error('Failed to get nearby escorts:', error);
       return [];
@@ -461,13 +508,13 @@ class ApiService {
   }
 
   // 创建预约
-  public async createAppointment(data: Partial<Appointment>): Promise<Appointment> {
+  public async createAppointment(data: CreateOrderRequest): Promise<Appointment> {
     const response = await this.axiosInstance.post<ApiResponse<Appointment>>('/orders', data);
-    if (response.data.success && response.data.data) {
-      return response.data.data;
-    } else {
-      throw new Error(response.data.message || 'Failed to create appointment');
+    const payload = this.extractPayload<Appointment>(response.data);
+    if (payload) {
+      return payload;
     }
+    throw new Error(response.data.message || 'Failed to create appointment');
   }
 
   // 获取用户预约列表
@@ -485,43 +532,46 @@ class ApiService {
 
   // Create Stripe payment intent
   public async createStripePaymentIntent(orderId: string, currency?: string): Promise<{ clientSecret: string; paymentIntentId: string }> {
-    const response = await this.axiosInstance.post<ApiResponse<{ clientSecret: string; paymentIntentId: string }>>('/payments/stripe/create-intent', {
+    const response = await this.axiosInstance.post<ApiResponse<{ clientSecret: string; paymentIntentId: string }> | { clientSecret: string; paymentIntentId: string }>('/payments/stripe/create-intent', {
       orderId,
       currency: currency || 'cny',
     });
-    if (response.data.success && response.data.data) {
-      return response.data.data;
+    const payload = this.extractPayload<{ clientSecret: string; paymentIntentId: string }>(response.data);
+    if (payload) {
+      return payload;
     }
-    throw new Error(response.data.message || 'Failed to create payment intent');
+    throw new Error((response.data as ApiResponse<{ clientSecret: string; paymentIntentId: string }>).message || 'Failed to create payment intent');
   }
 
   // Confirm Stripe payment
   public async confirmStripePayment(paymentIntentId: string): Promise<{ success: boolean; orderId: string }> {
-    const response = await this.axiosInstance.post<ApiResponse<{ success: boolean; orderId: string }>>('/payments/stripe/confirm', {
+    const response = await this.axiosInstance.post<ApiResponse<{ success: boolean; orderId: string }> | { success: boolean; orderId: string }>('/payments/stripe/confirm', {
       paymentIntentId,
     });
-    if (response.data.success && response.data.data) {
-      return response.data.data;
+    const payload = this.extractPayload<{ success: boolean; orderId: string }>(response.data);
+    if (payload) {
+      return payload;
     }
-    throw new Error(response.data.message || 'Failed to confirm payment');
+    throw new Error((response.data as ApiResponse<{ success: boolean; orderId: string }>).message || 'Failed to confirm payment');
   }
 
   // Create WeChat payment order
   public async createWechatPayment(orderId: string): Promise<{ wechatOrderId: string; qrCodeUrl: string; codeUrl?: string }> {
-    const response = await this.axiosInstance.post<ApiResponse<{ wechatOrderId: string; qrCodeUrl: string; codeUrl?: string }>>('/payments/wechat/create-order', {
+    const response = await this.axiosInstance.post<ApiResponse<{ wechatOrderId: string; qrCodeUrl: string; codeUrl?: string }> | { wechatOrderId: string; qrCodeUrl: string; codeUrl?: string }>('/payments/wechat/create-order', {
       orderId,
     });
-    if (response.data.success && response.data.data) {
-      return response.data.data;
+    const payload = this.extractPayload<{ wechatOrderId: string; qrCodeUrl: string; codeUrl?: string }>(response.data);
+    if (payload) {
+      return payload;
     }
-    throw new Error(response.data.message || 'Failed to create WeChat payment');
+    throw new Error((response.data as ApiResponse<{ wechatOrderId: string; qrCodeUrl: string; codeUrl?: string }>).message || 'Failed to create WeChat payment');
   }
 
   // Query WeChat payment status
   public async queryWechatPayment(orderId: string): Promise<any> {
     try {
-      const response = await this.axiosInstance.get<ApiResponse<any>>(`/payments/wechat/query/${orderId}`);
-      return response.data.data;
+      const response = await this.axiosInstance.get<ApiResponse<any> | any>(`/payments/wechat/query/${orderId}`);
+      return this.extractPayload<any>(response.data);
     } catch (error) {
       console.error('Failed to query WeChat payment:', error);
       return null;
@@ -581,8 +631,8 @@ class ApiService {
   // Get payment by order ID
   public async getPaymentByOrderId(orderId: string): Promise<any> {
     try {
-      const response = await this.axiosInstance.get<ApiResponse<any>>(`/payments/${orderId}`);
-      return response.data.data;
+      const response = await this.axiosInstance.get<ApiResponse<any> | any>(`/payments/${orderId}`);
+      return this.extractPayload<any>(response.data);
     } catch (error) {
       console.error('Failed to get payment:', error);
       return null;
@@ -946,20 +996,26 @@ class ApiService {
 
   // Get current user profile
   public async getUserProfile(): Promise<any> {
-    const response = await this.axiosInstance.get<ApiResponse<any>>('/users/me');
-    if (response.data.success && response.data.data) {
-      return response.data.data;
+    const response = await this.axiosInstance.get<ApiResponse<any> | any>('/users/me');
+    const payload = this.extractPayload<any>(response.data);
+    if (payload) {
+      return this.normalizeUserProfile(payload);
     }
-    throw new Error(response.data.message || 'Failed to get user profile');
+    throw new Error((response.data as ApiResponse<any>).message || 'Failed to get user profile');
   }
 
   // Update user profile
   public async updateUserProfile(data: { name?: string; phone?: string; avatar_url?: string; bio?: string; gender?: string; age?: number }): Promise<any> {
-    const response = await this.axiosInstance.patch<ApiResponse<any>>('/users/profile', data);
-    if (response.data.success && response.data.data) {
-      return response.data.data;
+    const { avatar_url, ...rest } = data;
+    const response = await this.axiosInstance.patch<ApiResponse<any> | any>('/users/profile', {
+      ...rest,
+      avatarUrl: avatar_url,
+    });
+    const payload = this.extractPayload<any>(response.data);
+    if (payload) {
+      return this.normalizeUserProfile(payload);
     }
-    throw new Error(response.data.message || 'Failed to update user profile');
+    throw new Error((response.data as ApiResponse<any>).message || 'Failed to update user profile');
   }
 
   // Get escort profile
@@ -1172,13 +1228,10 @@ class ApiService {
 
   // Get popular hospitals
   public async getPopularHospitals(limit: number = 10): Promise<Hospital[]> {
-    const response = await this.axiosInstance.get<ApiResponse<Hospital[]>>('/hospitals/popular', {
+    const response = await this.axiosInstance.get<ApiResponse<Hospital[]> | Hospital[]>('/hospitals/popular', {
       params: { limit }
     });
-    if (response.data.success && response.data.data) {
-      return response.data.data;
-    }
-    return [];
+    return this.extractPayload<Hospital[]>(response.data) || [];
   }
 
   // Get all departments
@@ -1214,13 +1267,10 @@ class ApiService {
 
   // Get popular escorts
   public async getPopularEscorts(limit: number = 10): Promise<EscortProfile[]> {
-    const response = await this.axiosInstance.get<ApiResponse<EscortProfile[]>>('/escorts/popular', {
+    const response = await this.axiosInstance.get<ApiResponse<EscortProfile[]> | EscortProfile[]>('/escorts/popular', {
       params: { limit }
     });
-    if (response.data.success && response.data.data) {
-      return response.data.data;
-    }
-    return [];
+    return this.extractPayload<EscortProfile[]>(response.data) || [];
   }
 
   // Get all specialties

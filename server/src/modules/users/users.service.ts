@@ -80,4 +80,37 @@ export class UsersService {
       },
     });
   }
+
+  async getNotificationSettings(userId: string) {
+    const profile = await this.prisma.userProfile.findUnique({
+      where: { userId },
+      select: {
+        emailNotifications: true,
+        pushNotifications: true,
+        smsNotifications: true,
+        promotionalNotifications: true,
+      },
+    });
+
+    if (!profile) {
+      throw new NotFoundException('User profile not found');
+    }
+
+    return profile;
+  }
+
+  async updateNotificationSettings(
+    userId: string,
+    settings: {
+      emailNotifications?: boolean;
+      pushNotifications?: boolean;
+      smsNotifications?: boolean;
+      promotionalNotifications?: boolean;
+    },
+  ) {
+    return this.prisma.userProfile.update({
+      where: { userId },
+      data: settings,
+    });
+  }
 }

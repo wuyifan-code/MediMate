@@ -42,7 +42,7 @@ export class NarrativeMedicineService {
 ${evidenceSummary}`;
 
     // 4. 调用 MiniMax 接口 (基于通用 OpenAI 兼容接口，兼容 abab6.5s-chat 等模型)
-    let generatedContent = '';
+    let generatedContent: string;
     try {
       const response = await fetch('https://api.minimaxi.com/v1/chat/completions', {
         method: 'POST',

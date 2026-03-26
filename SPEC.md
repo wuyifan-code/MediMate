@@ -35,7 +35,7 @@
 | Auth | JWT + Refresh Token |
 | Real-time | Socket.io |
 | Mobile | Capacitor |
-| AI | Google Gemini |
+| AI | MiniMax |
 
 ## API Endpoints
 

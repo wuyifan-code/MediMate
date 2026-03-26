@@ -1,3 +1,5 @@
+/* global module */
+
 module.exports = {
   moduleFileExtensions: ['js', 'json', 'ts'],
   rootDir: 'src',
