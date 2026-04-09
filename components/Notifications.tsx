@@ -376,60 +376,65 @@ export const Notifications: React.FC<NotificationsProps> = ({ lang, onNavigate }
     }
   };
 
+  const CustomIcons: Record<string, React.FC<any>> = {
+    order: (props) => (
+      <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" {...props}>
+        <path d="M12 21L4 16.5V7.5L12 3L20 7.5V16.5L12 21Z" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round"/>
+        <path d="M12 3V21" stroke="currentColor" strokeWidth="1.25" strokeOpacity="0.3" strokeLinecap="round" strokeLinejoin="round"/>
+        <path d="M4 7.5L12 11.5L20 7.5" stroke="currentColor" strokeWidth="1.25" strokeOpacity="0.3" strokeLinecap="round" strokeLinejoin="round"/>
+      </svg>
+    ),
+    payment: (props) => (
+      <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" {...props}>
+        <rect x="3" y="6" width="18" height="12" rx="3" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round"/>
+        <path d="M3 10H21" stroke="currentColor" strokeWidth="1.25" strokeOpacity="0.3" strokeLinecap="round" strokeLinejoin="round"/>
+        <path d="M7 14H11" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round"/>
+      </svg>
+    ),
+    message: (props) => (
+      <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" {...props}>
+        <path d="M20 12C20 16.4183 16.4183 20 12 20C10.8242 20 9.70823 19.7461 8.7 19.2929L4 21L5.34068 16.6358C4.5106 15.3448 4 13.7381 4 12C4 7.58172 7.58172 4 12 4C16.4183 4 20 7.58172 20 12Z" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round"/>
+        <path d="M8 12H8.01M12 12H12.01M16 12H16.01" stroke="currentColor" strokeWidth="2.5" strokeOpacity="0.3" strokeLinecap="round" strokeLinejoin="round"/>
+      </svg>
+    ),
+    system: (props) => (
+      <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" {...props}>
+        <path d="M18 8C18 6.4087 17.3679 4.88258 16.2426 3.75736C15.1174 2.63214 13.5913 2 12 2C10.4087 2 8.88258 2.63214 7.75736 3.75736C6.63214 4.88258 6 6.4087 6 8C6 15 3 17 3 17H21C21 17 18 15 18 8Z" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round"/>
+        <path d="M10.3 21C10.5693 21.4651 10.9669 21.847 11.4426 22.0969C11.9182 22.3468 12.4503 22.4532 12.9715 22.4026C13.4928 22.352 13.9796 22.1469 14.3686 21.8143C14.7577 21.4817 15.0306 21.0375 15.15 20.55" stroke="currentColor" strokeWidth="1.25" strokeOpacity="0.3" strokeLinecap="round" strokeLinejoin="round"/>
+      </svg>
+    ),
+    promotion: (props) => (
+      <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" {...props}>
+        <path d="M12 3L14.5 9.5L21 12L14.5 14.5L12 21L9.5 14.5L3 12L9.5 9.5L12 3Z" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round"/>
+        <circle cx="12" cy="12" r="2" stroke="currentColor" strokeWidth="1.25" strokeOpacity="0.3"/>
+      </svg>
+    ),
+    security: (props) => (
+      <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" {...props}>
+        <path d="M12 22S8 18 8 12V5L12 3L16 5V12C16 18 12 22 12 22Z" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round"/>
+        <path d="M12 8V12" stroke="currentColor" strokeWidth="1.25" strokeOpacity="0.3" strokeLinecap="round" strokeLinejoin="round"/>
+        <circle cx="12" cy="15" r="0.75" fill="currentColor" fillOpacity="0.3"/>
+      </svg>
+    ),
+    refund: (props) => (
+      <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" {...props}>
+        <path d="M16 12C16 14.2091 14.2091 16 12 16C9.79086 16 8 14.2091 8 12" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round"/>
+        <path d="M8 12C8 9.79086 9.79086 8 12 8C14.2091 8 16 9.79086 16 12" stroke="currentColor" strokeWidth="1.25" strokeOpacity="0.3" strokeLinecap="round" strokeLinejoin="round"/>
+        <path d="M16 8V12H20" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round"/>
+      </svg>
+    ),
+    review: (props) => (
+      <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" {...props}>
+        <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round"/>
+        <path d="M9 12L11 14L15 10" stroke="currentColor" strokeWidth="1.25" strokeOpacity="0.4" strokeLinecap="round" strokeLinejoin="round"/>
+      </svg>
+    )
+  };
+
   const getIconConfig = (type: string) => {
     const mappedType = NOTIFICATION_TYPES[type as keyof typeof NOTIFICATION_TYPES] || type.toLowerCase();
-    type IconComponent = React.ComponentType<{ className?: string }>;
-    const config: Record<string, { icon: IconComponent; bg: string; color: string; border: string }> = {
-      order: {
-        icon: Package,
-        bg: 'bg-blue-50',
-        color: 'text-blue-600',
-        border: 'border-blue-200'
-      },
-      payment: {
-        icon: CreditCard,
-        bg: 'bg-emerald-50',
-        color: 'text-emerald-600',
-        border: 'border-emerald-200'
-      },
-      refund: {
-        icon: RefreshCw,
-        bg: 'bg-amber-50',
-        color: 'text-amber-600',
-        border: 'border-amber-200'
-      },
-      message: {
-        icon: MessageCircle,
-        bg: 'bg-purple-50',
-        color: 'text-purple-600',
-        border: 'border-purple-200'
-      },
-      review: {
-        icon: CheckCircle,
-        bg: 'bg-yellow-50',
-        color: 'text-yellow-600',
-        border: 'border-yellow-200'
-      },
-      system: {
-        icon: Bell,
-        bg: 'bg-slate-50',
-        color: 'text-slate-600',
-        border: 'border-slate-200'
-      },
-      promotion: {
-        icon: Sparkles,
-        bg: 'bg-pink-50',
-        color: 'text-pink-600',
-        border: 'border-pink-200'
-      },
-      security: {
-        icon: Shield,
-        bg: 'bg-red-50',
-        color: 'text-red-600',
-        border: 'border-red-200'
-      },
-    };
-    return config[mappedType] || config.system;
+    const IconComponent = CustomIcons[mappedType] || CustomIcons.system;
+    return { icon: IconComponent };
   };
 
   const formatTime = (dateStr: string) => {
@@ -685,7 +690,7 @@ export const Notifications: React.FC<NotificationsProps> = ({ lang, onNavigate }
           </div>
         ) : (
           notifications.map((notification, index) => {
-            const { icon: Icon, bg, color, border } = getIconConfig(notification.type);
+            const { icon: Icon } = getIconConfig(notification.type);
             const isClicked = clickedId === notification.id;
             const isRead = notification.isRead ?? notification.is_read;
             const createdAt = notification.createdAt || notification.created_at;
@@ -695,26 +700,15 @@ export const Notifications: React.FC<NotificationsProps> = ({ lang, onNavigate }
               <div
                 key={notification.id}
                 onClick={() => handleNotificationClick(notification)}
-                className={`group relative bg-white rounded-2xl border transition-all duration-200 cursor-pointer overflow-hidden ${
-                  isClicked ? 'scale-[0.98] shadow-md' : 'hover:shadow-lg hover:-translate-y-0.5'
-                } ${
-                  isHighPriority
-                    ? 'border-red-200 shadow-red-100'
-                    : isRead
-                    ? 'border-slate-100'
-                    : 'border-teal-200 shadow-teal-50 shadow-sm'
+                className={`group relative bg-white rounded-2xl transition-all duration-200 cursor-pointer overflow-hidden border border-slate-100 ${
+                  isClicked ? 'scale-[0.98] bg-slate-50' : 'hover-lift'
                 }`}
                 style={{ animationDelay: `${index * 50}ms` }}
               >
-                {/* Priority Indicator */}
-                {isHighPriority && (
-                  <div className="absolute left-0 top-0 bottom-0 w-1 bg-gradient-to-b from-red-400 to-red-500"></div>
-                )}
-
                 <div className="p-4 flex gap-4">
                   {/* Icon */}
-                  <div className={`flex-shrink-0 w-12 h-12 ${bg} ${color} rounded-xl flex items-center justify-center border ${border} transition-transform group-hover:scale-105`}>
-                    <Icon className="h-6 w-6" />
+                  <div className="flex-shrink-0 w-10 h-10 bg-slate-50 text-slate-500 rounded-full flex items-center justify-center transition-transform group-hover:scale-105">
+                    <Icon className="h-5 w-5" />
                   </div>
 
                   {/* Content */}
@@ -728,7 +722,9 @@ export const Notifications: React.FC<NotificationsProps> = ({ lang, onNavigate }
                           {notification.title}
                         </h3>
                         {isHighPriority && (
-                          <Zap className="h-4 w-4 text-red-500 flex-shrink-0" />
+                          <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-red-50 text-red-500 flex-shrink-0">
+                            重要
+                          </span>
                         )}
                       </div>
                       <span className="text-xs text-slate-400 flex-shrink-0">
@@ -747,14 +743,14 @@ export const Notifications: React.FC<NotificationsProps> = ({ lang, onNavigate }
                           <button
                             onClick={(e) => handleMarkAsRead(notification.id, e)}
                             disabled={processing === notification.id}
-                            className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-teal-600 bg-teal-50 hover:bg-teal-100 rounded-full transition-colors"
+                            className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-slate-400 hover:text-slate-600 transition-colors"
                           >
                             {processing === notification.id ? (
                               <Loader2 className="h-3 w-3 animate-spin" />
                             ) : (
                               <Check className="h-3 w-3" />
                             )}
-                            {lang === 'zh' ? '标记已读' : 'Mark read'}
+                            {lang === 'zh' ? '标为已读' : 'Mark read'}
                           </button>
                         )}
                       </div>

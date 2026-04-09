@@ -129,7 +129,31 @@ export const PatientDashboard: React.FC<PatientDashboardProps> = ({ lang }) => {
     if (!symptoms.trim()) return;
     setAiLoading(true);
     try {
-      const advice = await getHealthTriage(symptoms);
+      let userLocation: { latitude: number; longitude: number } | undefined;
+
+      if (navigator.geolocation) {
+        try {
+          userLocation = await new Promise<{ latitude: number; longitude: number }>((resolve, reject) => {
+            navigator.geolocation.getCurrentPosition(
+              (position) => {
+                resolve({
+                  latitude: position.coords.latitude,
+                  longitude: position.coords.longitude,
+                });
+              },
+              (error) => {
+                console.warn('Geolocation error:', error.message);
+                reject(error);
+              },
+              { timeout: 5000, maximumAge: 300000 }
+            );
+          });
+        } catch {
+          console.warn('Could not get user location for AI triage');
+        }
+      }
+
+      const advice = await getHealthTriage(symptoms, userLocation);
       setAiAdvice(advice);
     } catch (error) {
       console.error('AI triage error:', error);

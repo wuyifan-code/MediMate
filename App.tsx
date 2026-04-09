@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, lazy, Suspense } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { Header } from './components/Header';
 import { Login } from './components/Login';
 import { Register } from './components/Register';
@@ -48,6 +49,7 @@ const AppWithMessages: React.FC<{ unreadCount: number }> = ({ unreadCount }) => 
   // Search state
   const [isSearchMode, setIsSearchMode] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [searchType, setSearchType] = useState<'hospital' | 'escort' | 'all' | 'web'>('all');
   const [popularHospitals, setPopularHospitals] = useState<Hospital[]>([]);
   const [popularEscorts, setPopularEscorts] = useState<EscortProfile[]>([]);
   const [selectedEscortId, setSelectedEscortId] = useState<string | null>(null);
@@ -161,8 +163,9 @@ const AppWithMessages: React.FC<{ unreadCount: number }> = ({ unreadCount }) => 
   };
 
   // Handle search
-  const handleSearch = (query: string, _type: 'hospital' | 'escort' | 'all') => {
+  const handleSearch = (query: string, type: 'hospital' | 'escort' | 'all' | 'web') => {
     setSearchQuery(query);
+    setSearchType(type);
     setIsSearchMode(true);
   };
 
@@ -358,7 +361,7 @@ const AppWithMessages: React.FC<{ unreadCount: number }> = ({ unreadCount }) => 
   const renderMainContent = () => {
     // Search mode - show search results
     if (isSearchMode) {
-      return <SearchResults lang={lang} onBack={handleSearchBack} initialQuery={searchQuery} />;
+      return <SearchResults lang={lang} onBack={handleSearchBack} initialQuery={searchQuery} initialType={searchType} />;
     }
 
     // Top-level page overrides
@@ -690,7 +693,18 @@ const AppWithMessages: React.FC<{ unreadCount: number }> = ({ unreadCount }) => 
                 )}
              </div>
              
-             {renderMainContent()}
+             <AnimatePresence mode="wait">
+               <motion.div
+                 key={isSearchMode ? 'search_mode' : currentPage}
+                 initial={{ opacity: 0, y: 12 }}
+                 animate={{ opacity: 1, y: 0 }}
+                 exit={{ opacity: 0, y: -12 }}
+                 transition={{ duration: 0.2, ease: 'easeOut' }}
+                 className="w-full relative"
+               >
+                 {renderMainContent()}
+               </motion.div>
+             </AnimatePresence>
           </main>
 
           {renderRightSidebar()}

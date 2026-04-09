@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { getHealthTriage } from '../services/aiService';
 import { apiService } from '../services/apiService';
 import { EscortProfile, Language, UserInfo } from '../types';
-import { MapPin, MessageCircle, Repeat2, Heart, BarChart2, Share, Image as ImageIcon, Smile, CalendarClock, BriefcaseMedical, MoreHorizontal, AlertCircle, RefreshCw, Loader2, X, Calendar, Star, FileText, Briefcase } from 'lucide-react';
+import { MapPin, MessageCircle, Repeat2, Heart, BarChart2, Share, Image as ImageIcon, Smile, CalendarClock, BriefcaseMedical, MoreHorizontal, AlertCircle, RefreshCw, Loader2, X, Calendar, Star, FileText, Briefcase, ClipboardPlus, Pill, Car, Bed, ChevronRight } from 'lucide-react';
 import { DatePickerModal } from './DatePickerModal';
 import { AvailableEscorts } from './AvailableEscorts';
 
@@ -228,9 +228,13 @@ export const PatientDashboard: React.FC<PatientDashboardProps> = ({ lang, user, 
   }, [lang]);
 
   const handleAiTriage = async () => {
-    if (!symptoms) return;
+    if (!symptoms && !selectedLocation && !selectedDate) return;
     setAiLoading(true);
-    const advice = await getHealthTriage(symptoms);
+    let query = symptoms;
+    if (selectedLocation) query += ` [位置: ${selectedLocation}]`;
+    if (selectedDate) query += ` [时间: ${selectedDate} ${selectedTime}]`;
+    
+    const advice = await getHealthTriage(query);
     setAiAdvice(advice);
     setAiLoading(false);
   };
@@ -284,6 +288,35 @@ export const PatientDashboard: React.FC<PatientDashboardProps> = ({ lang, user, 
               </div>
             )}
 
+            {/* Badges container */}
+            <div className="flex flex-wrap gap-2 mb-3">
+              {selectedLocation && (
+                <div className="inline-flex items-center gap-1.5 bg-teal-50 text-teal-700 px-3 py-1.5 rounded-full text-sm border border-teal-100 transition-all hover:bg-teal-100 shadow-sm">
+                  <MapPin className="h-3.5 w-3.5" />
+                  <span className="truncate max-w-[200px]">{selectedLocation}</span>
+                  <button 
+                    onClick={() => setSelectedLocation('')}
+                    className="ml-1 hover:bg-teal-200 p-0.5 rounded-full transition-colors"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              )}
+              
+              {selectedDate && (
+                <div className="inline-flex items-center gap-1.5 bg-indigo-50 text-indigo-700 px-3 py-1.5 rounded-full text-sm border border-indigo-100 transition-all hover:bg-indigo-100 shadow-sm">
+                  <Calendar className="h-3.5 w-3.5" />
+                  <span>{selectedDate} {selectedTime}</span>
+                  <button 
+                    onClick={() => { setSelectedDate(''); setSelectedTime(''); }}
+                    className="ml-1 hover:bg-indigo-200 p-0.5 rounded-full transition-colors"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              )}
+            </div>
+
             {selectedImage && (
               <div className="mb-3 relative inline-block">
                 <img src={selectedImage} alt="Preview" className="h-24 rounded-lg object-cover" />
@@ -303,13 +336,32 @@ export const PatientDashboard: React.FC<PatientDashboardProps> = ({ lang, user, 
                     }
                     setIsGettingLocation(true);
                     navigator.geolocation.getCurrentPosition(
-                      (pos) => {
+                      async (pos) => {
                         const lat = pos.coords.latitude.toFixed(6);
                         const lng = pos.coords.longitude.toFixed(6);
-                        const locationStr = `${lat},${lng}`;
-                        setSelectedLocation(locationStr);
-                        const newSym = symptoms + (symptoms ? ' ' : '') + `[位置: ${lat}, ${lng}]`;
-                        setSymptoms(newSym);
+                        let finalLocation = `${lat}, ${lng}`;
+                        
+                        try {
+                          const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1`, {
+                            headers: { 'Accept-Language': lang === 'zh' ? 'zh-CN,zh;q=0.9' : 'en-US,en;q=0.9' }
+                          });
+                          if (res.ok) {
+                            const data = await res.json();
+                            if (data && data.display_name) {
+                              // extract the most specific parts of the address
+                              const parts = data.display_name.split(', ');
+                              if (lang === 'zh') {
+                                finalLocation = parts.slice(0, 3).reverse().join('');
+                              } else {
+                                finalLocation = parts.slice(0, 3).join(', ');
+                              }
+                            }
+                          }
+                        } catch (err) {
+                          console.warn('Geocoding failed:', err);
+                        }
+
+                        setSelectedLocation(finalLocation);
                         setIsGettingLocation(false);
                       },
                       (err) => {
@@ -341,39 +393,62 @@ export const PatientDashboard: React.FC<PatientDashboardProps> = ({ lang, user, 
         </div>
       </div>
 
-      {/* Official Services */}
-      <div 
-        className="border-b border-slate-100 p-4 hover:bg-slate-50 cursor-pointer transition-colors"
-        onClick={() => onInteract('Open Services')}
-      >
-         <div className="flex gap-1 mb-1 text-xs font-bold text-slate-500 items-center ml-12">
-            <svg viewBox="0 0 24 24" aria-hidden="true" className="h-4 w-4 fill-current mr-1"><g><path d="M7 4.5C7 3.12 8.12 2 9.5 2h5C15.88 2 17 3.12 17 4.5v15c0 1.38-1.12 2.5-2.5 2.5h-5C8.12 22 7 20.88 7 19.5v-15zM9.5 4c-.28 0-.5.22-.5.5v15c0 .28.22.5.5.5h5c.28 0 .5-.22.5-.5v-15c0-.28-.22-.5-.5-.5h-5z"></path></g></svg>
-            {t.officialServices}
-         </div>
-         <div className="flex gap-3">
-             <div className="flex-shrink-0">
-               <div className="h-10 w-10 bg-teal-500 rounded-full flex items-center justify-center text-white font-bold">M</div>
-             </div>
-             <div className="flex-1">
-                <div className="flex items-center gap-1">
-                  <span className="font-bold text-slate-900">{t.officialAccount}</span>
-                  <span className="text-teal-500">@official</span>
-                  <span className="text-slate-500 text-sm">· {t.alwaysOpen}</span>
+      {/* New Premium Official Services Hub */}
+      <div className="p-4 bg-slate-50/50 border-b border-slate-100 pb-8">
+        <div className="bg-white rounded-[24px] p-5 shadow-[0_4px_30px_-5px_rgba(0,0,0,0.05)] border border-slate-100 relative overflow-hidden">
+          {/* Decorative background glow */}
+          <div className="absolute top-0 right-0 w-48 h-48 bg-teal-500/5 rounded-full blur-3xl pointer-events-none transform translate-x-1/2 -translate-y-1/2"></div>
+          
+          <div className="flex items-center justify-between mb-5 relative z-10">
+            <div className="flex items-center gap-3">
+              <div className="h-11 w-11 bg-gradient-to-br from-slate-800 to-black rounded-2xl shadow-lg flex items-center justify-center text-white font-black text-xl tracking-tighter">
+                M+
+              </div>
+              <div className="flex flex-col">
+                <div className="font-bold text-slate-900 text-[17px] tracking-tight hover:underline cursor-pointer transition-all" onClick={() => onInteract('Open Services')}>
+                  {t.officialAccount}
                 </div>
-                <div className="mt-2 grid grid-cols-2 gap-2">
-                  {t.services.map((s, idx) => (
-                    <div 
-                        key={idx} 
-                        className={`rounded-xl p-3 ${serviceColors[idx]} border border-transparent hover:border-black/10 transition-all cursor-pointer`}
-                        onClick={(e) => { e.stopPropagation(); onSelectService?.(s.label); }}
-                    >
-                       <div className="font-bold">{s.label}</div>
-                       <div className="text-xs opacity-70">{s.sub}</div>
-                    </div>
-                  ))}
+                <div className="text-[11px] font-medium text-teal-600 flex items-center gap-1.5 mt-0.5 bg-teal-50 w-max px-2 py-0.5 rounded-full border border-teal-100">
+                  <span className="relative flex h-1.5 w-1.5">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-teal-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-teal-500"></span>
+                  </span>
+                  {t.alwaysOpen}官方直营
                 </div>
-             </div>
-         </div>
+              </div>
+            </div>
+            
+            <button 
+              className="p-2 hover:bg-slate-50 rounded-full transition-colors group cursor-pointer"
+              onClick={() => onInteract('Open Services')}
+            >
+              <ChevronRight className="h-5 w-5 text-slate-400 group-hover:text-slate-700 transition-colors" />
+            </button>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3 relative z-10">
+            {[
+              { label: t.services[0].label, sub: t.services[0].sub, icon: ClipboardPlus, color: 'text-blue-600', bg: 'bg-blue-50/80', ring: 'group-hover:ring-blue-500/40' },
+              { label: t.services[1].label, sub: t.services[1].sub, icon: Pill, color: 'text-emerald-600', bg: 'bg-emerald-50/80', ring: 'group-hover:ring-emerald-500/40' },
+              { label: t.services[2].label, sub: t.services[2].sub, icon: Car, color: 'text-amber-600', bg: 'bg-amber-50/80', ring: 'group-hover:ring-amber-500/40' },
+              { label: t.services[3].label, sub: t.services[3].sub, icon: Bed, color: 'text-purple-600', bg: 'bg-purple-50/80', ring: 'group-hover:ring-purple-500/40' }
+            ].map((s, idx) => (
+              <div 
+                key={idx} 
+                className={`group flex flex-col p-4 rounded-[20px] bg-slate-50/60 hover:bg-white border border-slate-100 hover:border-transparent transition-all duration-300 cursor-pointer hover:shadow-[0_8px_25px_rgb(0,0,0,0.06)] hover:-translate-y-0.5 ring-1 ring-transparent ${s.ring}`}
+                onClick={(e) => { e.stopPropagation(); onSelectService?.(s.label); }}
+              >
+                <div className={`w-10 h-10 rounded-2xl flex items-center justify-center ${s.bg} mb-3 group-hover:scale-110 transition-transform duration-300`}>
+                  <s.icon className={`h-5 w-5 ${s.color}`} strokeWidth={2.5} />
+                </div>
+                <div>
+                  <div className="font-bold text-[15px] text-slate-800 tracking-tight group-hover:text-black">{s.label}</div>
+                  <div className="text-[12px] text-slate-500 mt-0.5 font-medium line-clamp-1">{s.sub}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
       </div>
 
       {/* Available Escorts Services */}
@@ -546,8 +621,6 @@ export const PatientDashboard: React.FC<PatientDashboardProps> = ({ lang, user, 
         onSelect={(date, time) => {
           setSelectedDate(date);
           setSelectedTime(time || '');
-          const dateStr = `${date}${time ? ` ${time}` : ''}`;
-          setSymptoms(symptoms + ` [预约: ${dateStr}]`);
         }}
         selectedDate={selectedDate}
         selectedTime={selectedTime}

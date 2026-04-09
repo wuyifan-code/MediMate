@@ -1,4 +1,15 @@
 /* MediMate 专业深色模式配色方案 */
+@import "tailwindcss";
+
+@theme {
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Helvetica Neue", sans-serif;
+  --radius-lg: 1rem;
+  --radius-xl: 1.25rem;
+  --radius-2xl: 1.5rem;
+  --radius-3xl: 2rem;
+  --shadow-soft: 0 4px 20px -2px rgba(0, 0, 0, 0.05);
+  --shadow-glow: 0 0 20px rgba(45, 212, 191, 0.2);
+}
 
 /* 基础变量定义 */
 :root {
@@ -25,9 +36,9 @@
   --error: #ef4444;
   --info: #3b82f6;
   
-  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
-  --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
-  --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+  --shadow-sm: 0 2px 8px -2px rgb(0 0 0 / 0.04);
+  --shadow-md: 0 8px 16px -4px rgb(0 0 0 / 0.06);
+  --shadow-lg: 0 12px 32px -4px rgb(0 0 0 / 0.08);
 }
 
 /* 深色模式变量 - 专业医疗级配色 */
@@ -54,9 +65,9 @@
   --error: #f87171;
   --info: #60a5fa;
   
-  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.3);
-  --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.4), 0 2px 4px -2px rgb(0 0 0 / 0.4);
-  --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.5), 0 4px 6px -4px rgb(0 0 0 / 0.5);
+  --shadow-sm: 0 2px 8px -2px rgb(0 0 0 / 0.2);
+  --shadow-md: 0 8px 16px -4px rgb(0 0 0 / 0.3);
+  --shadow-lg: 0 12px 32px -4px rgb(0 0 0 / 0.4);
 }
 
 /* 全局样式 */
@@ -167,10 +178,21 @@ body {
   border-color: rgba(255, 255, 255, 0.1);
 }
 
-/* 悬浮效果在深色模式下 */
+/* 悬浮效果 */
+.hover-lift {
+  transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.hover-lift:hover {
+  transform: translateY(-4px) scale(1.01);
+  box-shadow: 0 12px 30px -5px rgba(0, 0, 0, 0.08);
+}
+.dark .hover-lift {
+  transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
 .dark .hover-lift:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5);
+  transform: translateY(-4px) scale(1.01);
+  box-shadow: 0 12px 30px -5px rgba(0, 0, 0, 0.6);
 }
 
 /* 焦点样式 */

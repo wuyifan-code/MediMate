@@ -85,6 +85,7 @@ model User {
   reviewsReceived  Review[]        @relation("ReviewTarget")
   notifications    Notification[]
   escortServices   EscortService[]
+  favorites        Favorite[]      @relation("UserFavorites")
 
   @@map("users")
 }
@@ -491,4 +492,20 @@ model TransitStation {
   createdAt DateTime @default(now()) @map("created_at")
 
   @@map("transit_stations")
+}
+
+// 收藏表
+model Favorite {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  targetId  String   @map("target_id")
+  type      String   // escort, hospital, service
+  createdAt DateTime @default(now()) @map("created_at")
+
+  // Relations
+  user User @relation("UserFavorites", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([targetId])
+  @@map("favorites")
 }

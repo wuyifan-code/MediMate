@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsArray, IsOptional, IsString, ValidateNested } from 'class-validator';
+import { IsArray, IsNumber, IsOptional, IsString, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class ChatHistoryMessageDto {
@@ -16,6 +16,16 @@ export class TriageRequestDto {
   @ApiProperty()
   @IsString()
   symptoms: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsNumber()
+  latitude?: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsNumber()
+  longitude?: number;
 }
 
 export class MatchReasoningRequestDto {
@@ -39,4 +49,14 @@ export class AssistantRequestDto {
   @ValidateNested({ each: true })
   @Type(() => ChatHistoryMessageDto)
   history?: ChatHistoryMessageDto[];
+}
+
+export class WebSearchRequestDto {
+  @ApiProperty()
+  @IsString()
+  query: string;
+
+  @ApiProperty({ enum: ['zh', 'en'] })
+  @IsString()
+  lang: 'zh' | 'en';
 }

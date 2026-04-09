@@ -63,8 +63,13 @@ class ApiService {
       baseURL: import.meta.env.VITE_API_URL || 'http://localhost:3001/api',
       timeout: 10000, // 10秒超时
       headers: {
-        'Content-Type': 'application/json',
+        'Content-Type': 'application/json; charset=utf-8',
       },
+      transformRequest: [
+        (data: any, headers: any) => {
+          return JSON.stringify(data);
+        },
+      ],
     });
 
     // 配置请求拦截器
@@ -636,6 +641,27 @@ class ApiService {
     } catch (error) {
       console.error('Failed to get payment:', error);
       return null;
+    }
+  }
+
+  // Get AI Web Search Synthesis
+  public async getWebSearchSynthesis(query: string, lang: 'zh' | 'en'): Promise<any> {
+    try {
+      const response = await this.axiosInstance.post<ApiResponse<any>>('/ai/web-search', { query, lang });
+      if (response.data.success && response.data.data) {
+        return response.data.data;
+      }
+      throw new Error(response.data.message || 'Failed to get web search synthesis');
+    } catch (error) {
+      console.error('Failed to get web search synthesis:', error);
+      // Return fallback data
+      return {
+        synthesisText: lang === 'zh' ? '由于网络异常或未配置 API Key，检索引擎离线。请在后端 .env 中配置 MINIMAX_API_KEY。' : 'Search engine offline due to network issue or missing API Key. Please configure MINIMAX_API_KEY in the backend .env file.',
+        keyInfo: [
+          { title: lang === 'zh' ? '状态' : 'Status', val: lang === 'zh' ? '离线 (Offline)' : 'Offline' }
+        ],
+        sources: [lang === 'zh' ? '本地回退处理方案' : 'Local Fallback']
+      };
     }
   }
 

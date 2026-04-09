@@ -4,8 +4,13 @@ const aiClient = axios.create({
   baseURL: import.meta.env.VITE_API_URL || 'http://localhost:3001/api',
   timeout: 20000,
   headers: {
-    'Content-Type': 'application/json',
+    'Content-Type': 'application/json; charset=utf-8',
   },
+  transformRequest: [
+    (data: any, headers: any) => {
+      return JSON.stringify(data);
+    },
+  ],
 });
 
 // Attach JWT token to all AI requests
@@ -17,9 +22,17 @@ aiClient.interceptors.request.use((config) => {
   return config;
 });
 
-export const getHealthTriage = async (symptoms: string): Promise<string> => {
+export const getHealthTriage = async (
+  symptoms: string,
+  location?: { latitude: number; longitude: number }
+): Promise<string> => {
   try {
-    const response = await aiClient.post('/ai/triage', { symptoms });
+    const payload: any = { symptoms };
+    if (location?.latitude && location?.longitude) {
+      payload.latitude = location.latitude;
+      payload.longitude = location.longitude;
+    }
+    const response = await aiClient.post('/ai/triage', payload);
     return response.data?.data?.text || 'Unable to generate triage advice. Please consult a doctor immediately.';
   } catch (error) {
     console.error('AI triage error:', error);

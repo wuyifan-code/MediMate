@@ -143,75 +143,51 @@ export const DatePickerModal: React.FC<DatePickerModalProps> = ({
       <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
       <div className="relative bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden animate-scale-in">
         <div className="relative">
-          <div className={`bg-gradient-to-r from-teal-500 to-emerald-500 p-6 text-white transition-all duration-300 ${step === 'time' ? 'h-24' : 'h-32'}`}>
-            {step === 'date' ? (
-              <>
-                <div className="flex items-center justify-between mb-4">
-                  <button onClick={onClose} className="p-2 hover:bg-white/20 rounded-full transition-colors">
-                    <X className="h-5 w-5" />
-                  </button>
-                  <button onClick={() => setLang(l => l === 'zh' ? 'en' : 'zh')} className="px-3 py-1 bg-white/20 rounded-full text-sm hover:bg-white/30 transition-colors">
-                    {lang === 'zh' ? 'EN' : '中文'}
-                  </button>
-                </div>
-                <div className="text-center">
-                  <div className="text-5xl font-bold mb-1">
-                    {selected ? selected.getDate() : '--'}
-                  </div>
-                  <div className="text-white/80">
-                    {selected ? `${selected.getFullYear()}年${selected.getMonth() + 1}月` : lang === 'zh' ? '选择日期' : 'Select Date'}
-                  </div>
-                </div>
-              </>
-            ) : (
-              <div className="flex items-center justify-between">
-                <button onClick={handleBack} className="p-2 hover:bg-white/20 rounded-full transition-colors">
-                  <ChevronLeft className="h-5 w-5" />
-                </button>
-                <div className="text-center flex-1">
-                  <div className="text-lg font-bold">
-                    {selected?.toLocaleDateString(lang === 'zh' ? 'zh-CN' : 'en-US', { month: 'long', day: 'numeric' })}
-                  </div>
-                  <div className="text-sm text-white/80 flex items-center justify-center gap-1">
-                    <Clock className="h-3 w-3" />
-                    {lang === 'zh' ? '选择时间' : 'Select Time'}
-                  </div>
-                </div>
-                <button onClick={onClose} className="p-2 hover:bg-white/20 rounded-full transition-colors">
-                  <X className="h-5 w-5" />
-                </button>
-              </div>
-            )}
+          <div className="pt-6 px-6 pb-2 flex items-center justify-between">
+            <h2 className="text-xl font-bold text-slate-800 tracking-tight flex items-center gap-2">
+              {step === 'date' 
+                ? <><Calendar className="h-5 w-5 text-teal-500" /> {selected ? `${selected.getMonth() + 1}月${selected.getDate()}日` : (lang === 'zh' ? '选择就诊日期' : 'Select Date')}</>
+                : <><Clock className="h-5 w-5 text-teal-500" /> {lang === 'zh' ? '选择具体时间' : 'Select Time'}</>
+              }
+            </h2>
+            <div className="flex items-center gap-2">
+               {step === 'time' && (
+                 <button onClick={handleBack} className="p-2 hover:bg-slate-100 rounded-full transition-colors text-slate-400 hover:text-slate-600">
+                    <ChevronLeft className="h-5 w-5" />
+                 </button>
+               )}
+               <button onClick={onClose} className="p-2 bg-slate-50 hover:bg-slate-100 rounded-full transition-colors text-slate-400 hover:text-slate-600">
+                 <X className="h-5 w-5" />
+               </button>
+            </div>
           </div>
 
-          <div className="p-4">
+          <div className="px-6 pb-6 pt-2">
             {step === 'date' ? (
               <>
-                <div className="flex items-center justify-between mb-4">
-                  <button onClick={handlePrevMonth} className="p-2 hover:bg-slate-100 rounded-full transition-colors">
-                    <ChevronLeft className="h-5 w-5 text-slate-600" />
+                {/* Month Navigator */}
+                <div className="flex items-center justify-between mb-6 bg-slate-50/70 text-sm rounded-2xl p-1 border border-slate-100">
+                  <button onClick={handlePrevMonth} className="p-1.5 hover:bg-white rounded-xl transition-all hover:shadow-sm text-slate-500 hover:text-teal-600">
+                    <ChevronLeft className="h-4 w-4" />
                   </button>
-                  <div className="font-bold text-slate-900">
-                    {currentMonth.getFullYear()} {months[currentMonth.getMonth()]}
+                  <div className="font-semibold text-slate-700 tracking-wide">
+                    {currentMonth.getFullYear()}年 {months[currentMonth.getMonth()]}
                   </div>
-                  <button onClick={handleNextMonth} className="p-2 hover:bg-slate-100 rounded-full transition-colors">
-                    <ChevronRight className="h-5 w-5 text-slate-600" />
+                  <button onClick={handleNextMonth} className="p-1.5 hover:bg-white rounded-xl transition-all hover:shadow-sm text-slate-500 hover:text-teal-600">
+                    <ChevronRight className="h-4 w-4" />
                   </button>
                 </div>
 
-                <div className="grid grid-cols-7 gap-1 mb-2">
+                <div className="grid grid-cols-7 gap-y-1 gap-x-1">
                   {weekdays.map((day) => (
-                    <div key={day} className="text-center text-xs font-medium text-slate-500 py-2">
+                    <div key={day} className="text-center text-[11px] font-bold text-slate-400 uppercase tracking-wider py-1 mb-2">
                       {day}
                     </div>
                   ))}
-                </div>
-
-                <div className="grid grid-cols-7 gap-1">
                   {days.map((date, idx) => (
                     <div
                       key={idx}
-                      className="aspect-square flex items-center justify-center"
+                      className="aspect-square flex flex-col items-center justify-center p-0.5"
                       onMouseEnter={() => date && !isDisabled(date) && setHoverDate(date)}
                       onMouseLeave={() => setHoverDate(null)}
                     >
@@ -220,30 +196,29 @@ export const DatePickerModal: React.FC<DatePickerModalProps> = ({
                           onClick={() => handleDateClick(date)}
                           disabled={isDisabled(date)}
                           className={`
-                            w-10 h-10 rounded-full flex items-center justify-center text-sm font-medium transition-all duration-200
-                            ${isDisabled(date) ? 'text-slate-300 cursor-not-allowed' : 'hover:bg-slate-100 cursor-pointer'}
-                            ${isSelected(date) ? 'bg-teal-500 text-white hover:bg-teal-600 shadow-lg shadow-teal-500/30' : ''}
-                            ${isToday(date) && !isSelected(date) ? 'border-2 border-teal-500 text-teal-600' : ''}
-                            ${isInRange(date) && !isSelected(date) ? 'bg-teal-100 text-teal-700' : ''}
-                            ${isRangeStart(date) ? 'rounded-r-none' : ''}
-                            ${isRangeEnd(date) ? 'rounded-l-none' : ''}
+                            relative w-full h-full rounded-2xl flex items-center justify-center text-[15px] transition-all duration-300 border border-transparent
+                            ${isDisabled(date) ? 'text-slate-300/40 cursor-not-allowed' : 'text-slate-700 hover:bg-teal-50 hover:border-teal-100 hover:text-teal-600 font-medium cursor-pointer'}
+                            ${isSelected(date) ? '!bg-teal-500 !border-teal-500 text-white font-bold shadow-md shadow-teal-500/20 scale-105' : ''}
+                            ${isToday(date) && !isSelected(date) ? '!border-slate-200 text-teal-600 bg-white shadow-sm' : ''}
                           `}
                         >
                           {date.getDate()}
+                          {isToday(date) && !isSelected(date) && <span className="absolute bottom-1 w-1 h-1 bg-teal-500 rounded-full"></span>}
                         </button>
                       ) : (
-                        <div className="w-10 h-10" />
+                        <div className="w-full h-full" />
                       )}
                     </div>
                   ))}
                 </div>
 
-                <div className="mt-6 flex gap-2">
+                {/* Footer Quick Options */}
+                <div className="mt-5 flex gap-3 pt-5 border-t border-slate-100/60">
                   <button
                     onClick={() => setCurrentMonth(new Date())}
-                    className="flex-1 py-3 bg-slate-100 hover:bg-slate-200 rounded-xl text-sm font-medium text-slate-700 transition-colors"
+                    className="flex-1 py-2.5 bg-white border border-slate-200 hover:border-teal-300 hover:bg-teal-50 rounded-xl text-sm font-medium text-slate-600 hover:text-teal-700 transition-all"
                   >
-                    {lang === 'zh' ? '今天' : 'Today'}
+                    {lang === 'zh' ? '回到今天' : 'Today'}
                   </button>
                   <button
                     onClick={() => {
@@ -251,24 +226,24 @@ export const DatePickerModal: React.FC<DatePickerModalProps> = ({
                       tomorrow.setDate(tomorrow.getDate() + 1);
                       setCurrentMonth(tomorrow);
                     }}
-                    className="flex-1 py-3 bg-slate-100 hover:bg-slate-200 rounded-xl text-sm font-medium text-slate-700 transition-colors"
+                    className="flex-1 py-2.5 bg-white border border-slate-200 hover:border-teal-300 hover:bg-teal-50 rounded-xl text-sm font-medium text-slate-600 hover:text-teal-700 transition-all"
                   >
-                    {lang === 'zh' ? '明天' : 'Tomorrow'}
+                    {lang === 'zh' ? '查看明天' : 'Tomorrow'}
                   </button>
                 </div>
               </>
             ) : (
-              <div className="max-h-64 overflow-y-auto">
-                <div className="grid grid-cols-4 gap-2">
+              <div className="max-h-[360px] overflow-y-auto no-scrollbar pb-2">
+                <div className="grid grid-cols-4 gap-2.5">
                   {TIME_SLOTS.map((time) => (
                     <button
                       key={time}
                       onClick={() => handleTimeSelect(time)}
                       className={`
-                        py-3 rounded-xl text-sm font-medium transition-all duration-200
+                        py-3 rounded-2xl text-[13px] font-semibold transition-all duration-300 border
                         ${selectedTime === time
-                          ? 'bg-teal-500 text-white shadow-lg shadow-teal-500/30'
-                          : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+                          ? 'bg-teal-500 border-teal-500 text-white shadow-md shadow-teal-500/30 scale-[1.02]'
+                          : 'bg-white border-slate-100 hover:border-teal-200 hover:bg-teal-50 text-slate-600'
                         }
                       `}
                     >
@@ -276,8 +251,9 @@ export const DatePickerModal: React.FC<DatePickerModalProps> = ({
                     </button>
                   ))}
                 </div>
-                <div className="mt-4 text-center text-sm text-slate-500">
-                  {lang === 'zh' ? '选择就诊时间，方便陪诊师安排服务' : 'Select consultation time for scheduling'}
+                <div className="mt-8 flex items-center justify-center gap-2 text-xs font-medium text-slate-500 bg-slate-50 py-3 rounded-2xl border border-slate-100">
+                  <Clock className="h-4 w-4 text-teal-500" />
+                  {lang === 'zh' ? '请选择准确的时间，方便陪诊师安排服务' : 'Select consultation time for scheduling'}
                 </div>
               </div>
             )}

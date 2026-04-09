@@ -31,28 +31,48 @@
 ### Prerequisites
 
 - Node.js 18+
-- Docker & Docker Compose
-- PostgreSQL (optional)
+- Docker Desktop with `docker compose`
 
-### Quick Start
+### Local Development
 
-1. **Start Database:**
+This repo expects:
+
+- Frontend on `http://localhost:3000`
+- Backend API on `http://localhost:3001/api`
+- PostgreSQL from Docker on `localhost:5432`
+
+1. **Start PostgreSQL**
    ```bash
-   docker-compose up -d postgres
+   docker compose up -d postgres
    ```
 
-2. **Setup Backend:**
+2. **Configure and start the backend**
+   If `server/.env` does not exist yet, create it from the example first:
    ```bash
    cd server
    cp .env.example .env
+   ```
+
+   Then install dependencies, generate Prisma client, run migrations, and start Nest:
+   ```bash
    npm install
    npx prisma generate
    npx prisma migrate dev
    npm run start:dev
    ```
 
-3. **Start Frontend:**
+3. **Verify the backend before testing auth**
+   In a separate terminal:
    ```bash
+   curl http://localhost:3001/api/health
+   ```
+
+   The endpoint should return HTTP `200` and report both `api` and `database` as healthy.
+
+4. **Start the frontend**
+   In another terminal from the project root:
+   ```bash
+   cd ..
    npm install
    npm run dev
    ```
@@ -64,6 +84,7 @@
 | Frontend | http://localhost:3000 |
 | Backend API | http://localhost:3001/api |
 | API Docs | http://localhost:3001/api/docs |
+| Health Check | http://localhost:3001/api/health |
 
 ## Project Structure
 
@@ -104,9 +125,10 @@ See `SPEC.md` for complete API documentation.
 
 **Server (.env):**
 ```env
-DATABASE_URL=postgresql://user:pass@localhost:5432/medimate
+DATABASE_URL=postgresql://postgres:postgres@localhost:5432/medimate?schema=public
 JWT_SECRET=your-secret-key
 PORT=3001
+FRONTEND_URL=http://localhost:3000
 ```
 
 **Client (.env):**

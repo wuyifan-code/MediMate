@@ -4,7 +4,7 @@
   "description": "MediMate Backend API Server",
   "private": true,
   "scripts": {
-    "build": "nest build",
+    "build": "node scripts/clean-dist.cjs && nest build -p tsconfig.build.json",
     "start": "nest start",
     "start:dev": "nest start --watch",
     "start:prod": "node dist/main",

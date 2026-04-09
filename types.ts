@@ -215,6 +215,6 @@ export interface PaginatedResponse<T> {
 export interface SearchHistoryItem {
   id: string;
   query: string;
-  type: 'hospital' | 'escort' | 'all';
+  type: 'hospital' | 'escort' | 'all' | 'web';
   timestamp: number;
 }

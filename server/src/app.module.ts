@@ -15,6 +15,7 @@ import { NotificationsModule } from './modules/notifications/notifications.modul
 import { UploadsModule } from './modules/uploads/uploads.module';
 import { HealthModule } from './modules/health/health.module';
 import { AiModule } from './modules/ai/ai.module';
+import { FavoritesModule } from './modules/favorites/favorites.module';
 
 // 算法架构引擎与核心服务
 import { KnowledgeGraphModule } from './modules/knowledge-graph/knowledge-graph.module';
@@ -48,6 +49,7 @@ import { TrustModule } from './modules/trust/trust.module';
     NotificationsModule,
     UploadsModule,
     AiModule,
+    FavoritesModule,
     KnowledgeGraphModule,
     DigitalEvidenceModule,
     NarrativeMedicineModule,

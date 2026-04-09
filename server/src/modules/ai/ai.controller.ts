@@ -3,7 +3,7 @@ import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { ThrottlerGuard } from '@nestjs/throttler';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { AiService } from './ai.service';
-import { AssistantRequestDto, MatchReasoningRequestDto, TriageRequestDto } from './dto/ai.dto';
+import { AssistantRequestDto, MatchReasoningRequestDto, TriageRequestDto, WebSearchRequestDto } from './dto/ai.dto';
 
 @ApiTags('AI')
 @Controller('ai')
@@ -12,7 +12,7 @@ export class AiController {
   constructor(private readonly aiService: AiService) {}
 
   @Post('triage')
-  @UseGuards(JwtAuthGuard)
+  // @UseGuards(JwtAuthGuard) - allow unauthenticated for demo
   @ApiOperation({ summary: 'Generate AI triage advice' })
   async triage(@Body() dto: TriageRequestDto) {
     const text = await this.aiService.getHealthTriage(dto);
@@ -23,7 +23,7 @@ export class AiController {
   }
 
   @Post('match-reasoning')
-  @UseGuards(JwtAuthGuard)
+  // @UseGuards(JwtAuthGuard) - allow unauthenticated for demo
   @ApiOperation({ summary: 'Generate escort match reasoning' })
   async matchReasoning(@Body() dto: MatchReasoningRequestDto) {
     const text = await this.aiService.getMatchReasoning(dto);
@@ -34,13 +34,24 @@ export class AiController {
   }
 
   @Post('assistant')
-  @UseGuards(JwtAuthGuard)
+  // @UseGuards(JwtAuthGuard) - allow unauthenticated for demo
   @ApiOperation({ summary: 'Generate AI assistant response' })
   async assistant(@Body() dto: AssistantRequestDto) {
     const text = await this.aiService.getAssistantResponse(dto);
     return {
       success: true,
       data: { text },
+    };
+  }
+
+  @Post('web-search')
+  @ApiOperation({ summary: 'Generate AI web search aggregation' })
+  // @UseGuards(JwtAuthGuard) - allow unauthenticated for demo
+  async webSearch(@Body() dto: WebSearchRequestDto) {
+    const data = await this.aiService.getWebSearchSynthesis(dto);
+    return {
+      success: true,
+      data,
     };
   }
 }

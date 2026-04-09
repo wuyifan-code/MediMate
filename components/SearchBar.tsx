@@ -1,11 +1,11 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Search, X, Clock, TrendingUp, MapPin, Star, Loader2 } from 'lucide-react';
+import { Search, X, Clock, TrendingUp, MapPin, Star, Loader2, Globe } from 'lucide-react';
 import { apiService } from '../services/apiService';
 import { SearchSuggestion, SearchHistoryItem } from '../types';
 
 interface SearchBarProps {
   lang: 'zh' | 'en';
-  onSearch: (query: string, type: 'hospital' | 'escort' | 'all') => void;
+  onSearch: (query: string, type: 'hospital' | 'escort' | 'all' | 'web') => void;
   placeholder?: string;
   className?: string;
 }
@@ -40,7 +40,8 @@ export const SearchBar: React.FC<SearchBarProps> = ({
       hotSearch: '热门搜索',
       hospital: '医院',
       escort: '陪诊师',
-      search: '搜索',
+      search: '内置搜索',
+      searchWeb: '全网搜索',
     },
     en: {
       searchPlaceholder: placeholder || 'Search hospitals / escorts / departments',
@@ -52,6 +53,7 @@ export const SearchBar: React.FC<SearchBarProps> = ({
       hospital: 'Hospital',
       escort: 'Escort',
       search: 'Search',
+      searchWeb: 'Search Web',
     },
   }[lang];
 
@@ -74,7 +76,7 @@ export const SearchBar: React.FC<SearchBarProps> = ({
   }, []);
 
   // Add to search history
-  const addToHistory = useCallback((searchQuery: string, type: 'hospital' | 'escort' | 'all') => {
+  const addToHistory = useCallback((searchQuery: string, type: 'hospital' | 'escort' | 'all' | 'web') => {
     if (!searchQuery.trim()) return;
 
     setSearchHistory(prev => {
@@ -159,7 +161,7 @@ export const SearchBar: React.FC<SearchBarProps> = ({
   }, []);
 
   // Handle search submission
-  const handleSearch = useCallback((searchQuery: string, type: 'hospital' | 'escort' | 'all' = 'all') => {
+  const handleSearch = useCallback((searchQuery: string, type: 'hospital' | 'escort' | 'all' | 'web' = 'all') => {
     if (!searchQuery.trim()) return;
 
     addToHistory(searchQuery, type);
@@ -276,6 +278,25 @@ export const SearchBar: React.FC<SearchBarProps> = ({
             </div>
           )}
 
+          {/* Web Search Option */}
+          {query && (
+            <div className="py-2 border-t border-slate-100 dark:border-slate-700">
+              <button
+                onClick={() => {
+                  handleSearch(query, 'web');
+                }}
+                className="w-full px-4 py-3 flex items-center gap-3 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors text-left text-teal-600 dark:text-teal-400"
+              >
+                <Globe className="h-4 w-4 flex-shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <div className="font-medium truncate">
+                    {t.searchWeb} &quot;{query}&quot;
+                  </div>
+                </div>
+              </button>
+            </div>
+          )}
+
           {/* Recent Searches */}
           {showHistory && searchHistory.length > 0 && (
             <div className="py-2 border-t border-slate-100 dark:border-slate-700">
@@ -291,10 +312,10 @@ export const SearchBar: React.FC<SearchBarProps> = ({
                 </button>
               </div>
               {searchHistory.map((item) => (
-                <button
+                <div
                   key={item.id}
                   onClick={() => handleHistoryClick(item)}
-                  className="w-full px-4 py-3 flex items-center gap-3 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors text-left group"
+                  className="w-full px-4 py-3 flex items-center gap-3 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors text-left group cursor-pointer"
                 >
                   <Clock className="h-4 w-4 text-slate-400 flex-shrink-0" />
                   <div className="flex-1 min-w-0">
@@ -305,10 +326,11 @@ export const SearchBar: React.FC<SearchBarProps> = ({
                   <button
                     onClick={(e) => removeHistoryItem(item.id, e)}
                     className="opacity-0 group-hover:opacity-100 p-1 hover:bg-slate-200 dark:hover:bg-slate-600 rounded-full transition-all"
+                    aria-label="Remove from history"
                   >
                     <X className="h-3 w-3 text-slate-400" />
                   </button>
-                </button>
+                </div>
               ))}
             </div>
           )}

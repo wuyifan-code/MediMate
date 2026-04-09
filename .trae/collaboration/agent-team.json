@@ -1,0 +1,92 @@
+{
+  "team": {
+    "name": "MediMate Frontend UI Refactor Team",
+    "description": "负责 MediMate 前端 UI 重构、壳层整理、动效统一和主流程体验升级的三人前端团队。",
+    "members": [
+      {
+        "id": "frontend-engineer-1",
+        "name": "App Shell 与导航负责人",
+        "role": "Senior Frontend Engineer",
+        "expertise": [
+          "React",
+          "TypeScript",
+          "App Shell Architecture",
+          "Navigation Systems",
+          "Responsive Layout"
+        ],
+        "responsibilities": [
+          "拆分并治理应用壳层，统一桌面端和移动端布局",
+          "设计和实现侧边栏、顶部栏、底部 dock 和右侧上下文面板",
+          "建立路由元信息和 overlay 层级规则",
+          "确保全局导航高亮、返回和页面切换语义一致"
+        ],
+        "tasks": [
+          "重构 AppShell 与路由元信息",
+          "统一桌面和移动端导航结构",
+          "治理 overlay 层级与页面容器",
+          "优化主框架响应式断点"
+        ]
+      },
+      {
+        "id": "frontend-engineer-2",
+        "name": "认证与高频入口负责人",
+        "role": "Frontend Engineer",
+        "expertise": [
+          "React",
+          "UI/UX Design",
+          "Form Design",
+          "Design Tokens",
+          "Micro-interactions"
+        ],
+        "responsibilities": [
+          "重构登录、注册和找回密码等认证流程",
+          "统一按钮、表单、卡片和空状态的视觉语言",
+          "处理首页高频入口、搜索入口和服务选择弹层",
+          "让高频交互更清爽，减少重复视觉噪音"
+        ],
+        "tasks": [
+          "重构登录和注册页面",
+          "建立基础设计 token 和表单组件",
+          "优化首页入口卡片与快速操作区",
+          "统一服务选择弹层与表单反馈"
+        ]
+      },
+      {
+        "id": "frontend-engineer-3",
+        "name": "核心业务页与动效负责人",
+        "role": "Frontend Engineer",
+        "expertise": [
+          "React",
+          "Animation Systems",
+          "CSS",
+          "Interaction Design",
+          "Motion UX"
+        ],
+        "responsibilities": [
+          "重构消息、通知和探索等核心业务页",
+          "建立轻柔自然的页面过渡和交互反馈",
+          "统一列表、详情、空状态和加载态样式",
+          "让页面切换、抽屉和底部导航更顺滑自然"
+        ],
+        "tasks": [
+          "重构消息和通知页面",
+          "优化探索页和结果页的视觉层次",
+          "实现页面切换与弹层过渡动画",
+          "统一列表和卡片动效表现"
+        ]
+      }
+    ],
+    "tools": {
+      "svg_icons": {
+        "source": "lucide-react",
+        "style": "linear",
+        "consistency_guidelines": [
+          "统一使用线性图标风格",
+          "保持 24x24px 的基础尺寸",
+          "图标颜色跟随语义色和主题色",
+          "优先使用可理解的语义化命名"
+        ]
+      }
+    }
+  }
+}

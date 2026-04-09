@@ -1,6 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { Language } from '../types';
-import { ArrowLeft, Globe, Check, Bell, Tag, MessageSquare, Settings as SettingsIcon, Loader2, CheckCircle, Moon, Sun, Server, Trash, Monitor } from 'lucide-react';
+import { 
+  ArrowLeft, Globe, Check, Bell, Tag, MessageSquare, Settings as SettingsIcon, 
+  Loader2, CheckCircle, Moon, Sun, Server, Trash, Monitor, ChevronRight
+} from 'lucide-react';
 import { apiService } from '../services/apiService';
 import { useTheme } from '../contexts/ThemeContext';
 
@@ -242,370 +245,332 @@ export const Settings: React.FC<SettingsProps> = ({ currentLang, setLang, onBack
   };
 
   return (
-    <div className="pb-24">
-      {/* Header */}
-      <div className="sticky top-0 z-40 bg-white/80 backdrop-blur-md border-b border-slate-100 px-4 h-[53px] flex items-center gap-6 cursor-pointer" onClick={onBack}>
-         <ArrowLeft className="h-5 w-5 hover:bg-slate-100 rounded-full" />
-         <h1 className="text-xl font-bold text-slate-900">{t.title}</h1>
+    <div className="min-h-screen bg-slate-50/50 dark:bg-slate-900 pb-24 font-sans text-slate-800 dark:text-slate-200 transition-colors duration-300">
+      {/* iOS-Style Glass Header */}
+      <div className="sticky top-0 z-40 bg-white/75 dark:bg-slate-900/75 backdrop-blur-xl border-b border-slate-200/50 dark:border-slate-800 px-4 h-14 flex items-center justify-between transition-colors duration-300">
+        <button 
+          onClick={onBack}
+          className="p-1.5 -ml-1.5 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors active:scale-95"
+        >
+          <ArrowLeft className="h-6 w-6 text-slate-700 dark:text-slate-300" />
+        </button>
+        <h1 className="text-[17px] font-semibold text-slate-900 dark:text-white absolute left-1/2 -translate-x-1/2 tracking-tight">
+          {t.title}
+        </h1>
+        <div className="w-9" />
       </div>
 
-      <div className="p-4">
-        <div className="flex gap-2 mb-6">
-          <button
-            onClick={() => setActiveSection('language')}
-            className={`flex-1 py-3 px-4 rounded-xl font-medium transition-all ${
-              activeSection === 'language'
-                ? 'bg-teal-600 text-white shadow-lg'
-                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-            }`}
-          >
-            <div className="flex items-center justify-center gap-2">
-              <Globe className="h-5 w-5" />
-              <span>{t.languages}</span>
-            </div>
-          </button>
-          <button
-            onClick={() => setActiveSection('notifications')}
-            className={`flex-1 py-3 px-4 rounded-xl font-medium transition-all ${
-              activeSection === 'notifications'
-                ? 'bg-teal-600 text-white shadow-lg'
-                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-            }`}
-          >
-            <div className="flex items-center justify-center gap-2">
-              <Bell className="h-5 w-5" />
-              <span>{t.notifications}</span>
-            </div>
-          </button>
-          <button
-            onClick={() => setActiveSection('cache')}
-            className={`flex-1 py-3 px-4 rounded-xl font-medium transition-all ${
-              activeSection === 'cache'
-                ? 'bg-teal-600 text-white shadow-lg'
-                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-            }`}
-          >
-            <div className="flex items-center justify-center gap-2">
-              <Server className="h-5 w-5" />
-              <span>{t.cache}</span>
-            </div>
-          </button>
-          <button
-            onClick={() => setActiveSection('display')}
-            className={`flex-1 py-3 px-4 rounded-xl font-medium transition-all ${
-              activeSection === 'display'
-                ? 'bg-teal-600 text-white shadow-lg'
-                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-            }`}
-          >
-            <div className="flex items-center justify-center gap-2">
-              {themeMode === 'system' ? <Monitor className="h-5 w-5" /> : theme === 'dark' ? <Moon className="h-5 w-5" /> : <Sun className="h-5 w-5" />}
-              <span>{t.display}</span>
-            </div>
-          </button>
+      <div className="p-4 sm:p-6 max-w-2xl mx-auto space-y-6">
+        
+        {/* Segmented Control Navigation */}
+        <div className="bg-slate-200/60 dark:bg-slate-800/80 p-1 rounded-2xl flex items-center shadow-inner overflow-x-auto hide-scrollbar whitespace-nowrap">
+          {[
+            { id: 'language', icon: Globe, label: t.languages },
+            { id: 'notifications', icon: Bell, label: t.notifications },
+            { id: 'display', icon: Monitor, label: t.display },
+            { id: 'cache', icon: Server, label: t.cache }
+          ].map((tab) => {
+            const isActive = activeSection === tab.id;
+            return (
+              <button
+                key={tab.id}
+                onClick={() => setActiveSection(tab.id as any)}
+                className={`flex-1 relative py-2.5 px-3 rounded-[12px] text-xs sm:text-sm font-medium transition-all duration-300 flex items-center justify-center gap-1.5 min-w-[70px] ${
+                  isActive
+                    ? 'bg-white dark:bg-slate-700 text-teal-600 dark:text-teal-400 shadow-sm scale-100'
+                    : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300 hover:bg-slate-200/50 dark:hover:bg-slate-800/50 scale-95'
+                }`}
+              >
+                <tab.icon className={`h-4 w-4 ${isActive ? '' : 'opacity-80'}`} />
+                <span className="hidden xs:inline-block">{tab.label}</span>
+              </button>
+            );
+          })}
         </div>
 
-        {activeSection === 'language' && (
-          <>
-            <h2 className="text-xl font-black mb-6">{t.accessibility}</h2>
-            <div className="space-y-6">
-              <div>
-                <div className="flex items-center gap-3 text-slate-500 mb-2">
-                  <Globe className="h-5 w-5" />
-                  <span className="font-bold text-slate-900">{t.languages}</span>
+        {/* Dynamic Section Content */}
+        <div className="animate-in fade-in slide-in-from-bottom-2 duration-300 ease-out">
+          
+          {/* Language Component */}
+          {activeSection === 'language' && (
+            <div className="space-y-2">
+              <h2 className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider ml-4 mb-1">{t.displayLang}</h2>
+              <div className="bg-white dark:bg-slate-800 rounded-[20px] shadow-sm border border-slate-200/60 dark:border-slate-700/50 overflow-hidden">
+                <div
+                  className="flex items-center justify-between p-4 hover:bg-slate-50 dark:hover:bg-slate-700/50 cursor-pointer transition-colors active:bg-slate-100 dark:active:bg-slate-700"
+                  onClick={() => setLang('zh')}
+                >
+                  <div className="flex items-center gap-3.5">
+                    <div className="w-8 h-8 rounded-lg bg-blue-50 dark:bg-blue-500/10 text-blue-500 dark:text-blue-400 flex items-center justify-center">
+                      <span className="font-bold text-xs uppercase">ZH</span>
+                    </div>
+                    <span className="font-medium text-[16px] leading-tight text-slate-800 dark:text-slate-200">{t.chinese}</span>
+                  </div>
+                  {currentLang === 'zh' ? <Check className="h-5 w-5 text-teal-500" /> : <div className="w-5" />}
                 </div>
-                <p className="text-sm text-slate-500 mb-4 ml-8">
-                  Manage which languages are used to personalize your MediMate experience.
-                </p>
+                
+                <div className="h-[1px] bg-slate-100 dark:bg-slate-700/50 ml-14"></div>
+                
+                <div
+                  className="flex items-center justify-between p-4 hover:bg-slate-50 dark:hover:bg-slate-700/50 cursor-pointer transition-colors active:bg-slate-100 dark:active:bg-slate-700"
+                  onClick={() => setLang('en')}
+                >
+                  <div className="flex items-center gap-3.5">
+                    <div className="w-8 h-8 rounded-lg bg-orange-50 dark:bg-orange-500/10 text-orange-500 dark:text-orange-400 flex items-center justify-center">
+                      <span className="font-bold text-xs uppercase">EN</span>
+                    </div>
+                    <span className="font-medium text-[16px] leading-tight text-slate-800 dark:text-slate-200">{t.english}</span>
+                  </div>
+                  {currentLang === 'en' ? <Check className="h-5 w-5 text-teal-500" /> : <div className="w-5" />}
+                </div>
+              </div>
+              <p className="text-xs text-slate-500 dark:text-slate-400 ml-4 pt-1 opacity-80">
+                Manage which languages are used to personalize your MediMate experience.
+              </p>
+            </div>
+          )}
 
-                <div className="ml-8 space-y-1">
-                  <div
-                    className="flex items-center justify-between p-4 hover:bg-slate-50 cursor-pointer rounded-xl transition-colors"
-                    onClick={() => setLang('zh')}
+          {/* Display Component */}
+          {activeSection === 'display' && (
+            <div className="space-y-2">
+              <h2 className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider ml-4 mb-1">{t.darkMode}</h2>
+              <div className="bg-white dark:bg-slate-800 rounded-[20px] shadow-sm border border-slate-200/60 dark:border-slate-700/50 overflow-hidden">
+                <div className="p-4 grid grid-cols-3 gap-3">
+                  <button
+                    onClick={() => setThemeMode('light')}
+                    className={`flex flex-col items-center justify-center p-4 rounded-xl transition-all duration-300 active:scale-95 ${
+                      themeMode === 'light' 
+                      ? 'bg-teal-50/70 dark:bg-teal-500/10 border border-teal-200 dark:border-teal-700 shadow-sm' 
+                      : 'bg-slate-50 dark:bg-slate-700/30 border border-transparent hover:bg-slate-100 dark:hover:bg-slate-700/60'
+                    }`}
                   >
-                    <span className="font-medium">{t.chinese}</span>
-                    {currentLang === 'zh' && <Check className="h-5 w-5 text-teal-600" />}
-                  </div>
-
-                  <div
-                    className="flex items-center justify-between p-4 hover:bg-slate-50 cursor-pointer rounded-xl transition-colors"
-                    onClick={() => setLang('en')}
-                  >
-                    <span className="font-medium">{t.english}</span>
-                    {currentLang === 'en' && <Check className="h-5 w-5 text-teal-600" />}
-                  </div>
-                </div>
-              </div>
-            </div>
-          </>
-        )}
-
-        {activeSection === 'display' && (
-          <>
-            <h2 className="text-xl font-black mb-6">{t.display}</h2>
-            <div className="space-y-4 mb-6">
-              <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
-                <div className="p-4 border-b border-slate-100 dark:border-slate-700 bg-slate-50 dark:bg-slate-700/50">
-                  <div className="flex items-center gap-3 text-slate-600 dark:text-slate-300">
-                    {theme === 'dark' ? <Moon className="h-5 w-5" /> : <Sun className="h-5 w-5" />}
-                    <span className="font-bold text-slate-900 dark:text-white">{t.darkMode}</span>
-                  </div>
-                </div>
-
-                <div className="p-4">
-                  <p className="text-sm text-slate-500 dark:text-slate-400 mb-4">
-                    {t.darkModeDesc}
-                  </p>
-
-                  <div className="grid grid-cols-3 gap-3">
-                    <button
-                      onClick={() => setThemeMode('light')}
-                      className={`py-3 px-4 rounded-xl font-medium transition-all flex flex-col items-center justify-center gap-2 ${
-                        themeMode === 'light'
-                          ? 'bg-teal-600 text-white shadow-lg'
-                          : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600'
-                      }`}
-                    >
-                      <Sun className="h-5 w-5" />
-                      <span className="text-sm">{t.light}</span>
-                    </button>
-                    <button
-                      onClick={() => setThemeMode('dark')}
-                      className={`py-3 px-4 rounded-xl font-medium transition-all flex flex-col items-center justify-center gap-2 ${
-                        themeMode === 'dark'
-                          ? 'bg-teal-600 text-white shadow-lg'
-                          : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600'
-                      }`}
-                    >
-                      <Moon className="h-5 w-5" />
-                      <span className="text-sm">{t.dark}</span>
-                    </button>
-                    <button
-                      onClick={() => setThemeMode('system')}
-                      className={`py-3 px-4 rounded-xl font-medium transition-all flex flex-col items-center justify-center gap-2 ${
-                        themeMode === 'system'
-                          ? 'bg-teal-600 text-white shadow-lg'
-                          : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600'
-                      }`}
-                    >
-                      <Monitor className="h-5 w-5" />
-                      <span className="text-sm">{t.system}</span>
-                    </button>
-                  </div>
-
-                  {themeMode === 'system' && (
-                    <p className="mt-4 text-xs text-slate-500 dark:text-slate-400 text-center">
-                      {currentLang === 'zh' ? `当前跟随系统: ${theme === 'dark' ? '深色' : '浅色'}` : `Following system: ${theme === 'dark' ? 'Dark' : 'Light'}`}
-                    </p>
-                  )}
-                </div>
-              </div>
-            </div>
-          </>
-        )}
-
-        {activeSection === 'notifications' && (
-          <>
-            <h2 className="text-xl font-black mb-6">{t.notificationPrefs}</h2>
-
-            <div className="space-y-4 mb-6">
-              <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-                <div className="p-4 border-b border-slate-100 bg-slate-50">
-                  <div className="flex items-center gap-3 text-slate-600">
-                    <SettingsIcon className="h-5 w-5" />
-                    <span className="font-bold text-slate-900">{t.notificationPrefs}</span>
-                  </div>
-                </div>
-
-                <div className="divide-y divide-slate-100">
-                  <div className="p-4 flex items-center justify-between hover:bg-slate-50 transition-colors">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-3 mb-1">
-                        <Tag className="h-5 w-5 text-teal-600" />
-                        <span className="font-medium text-slate-900">{t.orderNotifications}</span>
-                      </div>
-                      <p className="text-sm text-slate-500 ml-8">{t.orderNotificationsDesc}</p>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className={`text-xs font-medium ${notificationSettings.orderNotifications ? 'text-teal-600' : 'text-slate-400'}`}>
-                        {notificationSettings.orderNotifications ? t.on : t.off}
-                      </span>
-                      <button
-                        onClick={() => handleToggle('orderNotifications')}
-                        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                          notificationSettings.orderNotifications ? 'bg-teal-600' : 'bg-slate-300'
-                        }`}
-                      >
-                        <span
-                          className={`inline-block h-4 w-4 transform rounded-full bg-white shadow-lg transition-transform ${
-                            notificationSettings.orderNotifications ? 'translate-x-6' : 'translate-x-1'
-                          }`}
-                        />
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="p-4 flex items-center justify-between hover:bg-slate-50 transition-colors">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-3 mb-1">
-                        <MessageSquare className="h-5 w-5 text-teal-600" />
-                        <span className="font-medium text-slate-900">{t.messageNotifications}</span>
-                      </div>
-                      <p className="text-sm text-slate-500 ml-8">{t.messageNotificationsDesc}</p>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className={`text-xs font-medium ${notificationSettings.messageNotifications ? 'text-teal-600' : 'text-slate-400'}`}>
-                        {notificationSettings.messageNotifications ? t.on : t.off}
-                      </span>
-                      <button
-                        onClick={() => handleToggle('messageNotifications')}
-                        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                          notificationSettings.messageNotifications ? 'bg-teal-600' : 'bg-slate-300'
-                        }`}
-                      >
-                        <span
-                          className={`inline-block h-4 w-4 transform rounded-full bg-white shadow-lg transition-transform ${
-                            notificationSettings.messageNotifications ? 'translate-x-6' : 'translate-x-1'
-                          }`}
-                        />
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="p-4 flex items-center justify-between hover:bg-slate-50 transition-colors">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-3 mb-1">
-                        <Bell className="h-5 w-5 text-teal-600" />
-                        <span className="font-medium text-slate-900">{t.systemNotifications}</span>
-                      </div>
-                      <p className="text-sm text-slate-500 ml-8">{t.systemNotificationsDesc}</p>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className={`text-xs font-medium ${notificationSettings.systemNotifications ? 'text-teal-600' : 'text-slate-400'}`}>
-                        {notificationSettings.systemNotifications ? t.on : t.off}
-                      </span>
-                      <button
-                        onClick={() => handleToggle('systemNotifications')}
-                        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                          notificationSettings.systemNotifications ? 'bg-teal-600' : 'bg-slate-300'
-                        }`}
-                      >
-                        <span
-                          className={`inline-block h-4 w-4 transform rounded-full bg-white shadow-lg transition-transform ${
-                            notificationSettings.systemNotifications ? 'translate-x-6' : 'translate-x-1'
-                          }`}
-                        />
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="p-4 flex items-center justify-between hover:bg-slate-50 transition-colors">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-3 mb-1">
-                        <Tag className="h-5 w-5 text-teal-600" />
-                        <span className="font-medium text-slate-900">{t.promotionalNotifications}</span>
-                      </div>
-                      <p className="text-sm text-slate-500 ml-8">{t.promotionalNotificationsDesc}</p>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className={`text-xs font-medium ${notificationSettings.promotionalNotifications ? 'text-teal-600' : 'text-slate-400'}`}>
-                        {notificationSettings.promotionalNotifications ? t.on : t.off}
-                      </span>
-                      <button
-                        onClick={() => handleToggle('promotionalNotifications')}
-                        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                          notificationSettings.promotionalNotifications ? 'bg-teal-600' : 'bg-slate-300'
-                        }`}
-                      >
-                        <span
-                          className={`inline-block h-4 w-4 transform rounded-full bg-white shadow-lg transition-transform ${
-                            notificationSettings.promotionalNotifications ? 'translate-x-6' : 'translate-x-1'
-                          }`}
-                        />
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <button
-              onClick={handleSave}
-              disabled={saving}
-              className="w-full bg-teal-600 hover:bg-teal-700 disabled:bg-teal-400 text-white font-semibold py-3 px-6 rounded-xl transition-all shadow-lg hover:shadow-xl disabled:shadow-lg flex items-center justify-center gap-2"
-            >
-              {saving ? (
-                <>
-                  <Loader2 className="h-5 w-5 animate-spin" />
-                  <span>{t.saving}</span>
-                </>
-              ) : showSuccess ? (
-                <>
-                  <CheckCircle className="h-5 w-5" />
-                  <span>{t.saved}</span>
-                </>
-              ) : (
-                <span>{t.save}</span>
-              )}
-            </button>
-          </>
-        )}
-
-        {activeSection === 'cache' && (
-          <>
-            <h2 className="text-xl font-black mb-6">{t.cacheManagement}</h2>
-
-            <div className="space-y-4 mb-6">
-              <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-                <div className="p-4 border-b border-slate-100 bg-slate-50">
-                  <div className="flex items-center gap-3 text-slate-600">
-                    <Server className="h-5 w-5" />
-                    <span className="font-bold text-slate-900">{t.storage}</span>
-                  </div>
-                </div>
-
-                <div className="p-6">
-                  <div className="flex items-center justify-between mb-4">
-                    <div>
-                      <p className="text-sm text-slate-500 mb-1">{t.currentCache}</p>
-                      <p className="text-2xl font-bold text-slate-900">{formatBytes(cacheSize)}</p>
-                    </div>
-                    <div className="w-16 h-16 rounded-full bg-teal-50 flex items-center justify-center">
-                      <Server className="h-8 w-8 text-teal-600" />
-                    </div>
-                  </div>
-
-                  <p className="text-sm text-slate-500 mb-6">
-                    {t.clearCacheDesc}
-                  </p>
+                    <Sun className={`h-7 w-7 mb-2.5 transition-colors ${themeMode === 'light' ? 'text-teal-600 dark:text-teal-400' : 'text-slate-400 dark:text-slate-500'}`} />
+                    <span className={`text-[13px] font-medium transition-colors ${themeMode === 'light' ? 'text-teal-700 dark:text-teal-300' : 'text-slate-600 dark:text-slate-400'}`}>{t.light}</span>
+                  </button>
 
                   <button
-                    onClick={handleClearCache}
-                    disabled={clearingCache || cacheSize === 0}
-                    className="w-full bg-red-50 hover:bg-red-100 disabled:bg-slate-100 disabled:text-slate-400 text-red-600 font-semibold py-3 px-6 rounded-xl transition-all flex items-center justify-center gap-2 border-2 border-red-200 hover:border-red-300 disabled:border-slate-200"
+                    onClick={() => setThemeMode('dark')}
+                    className={`flex flex-col items-center justify-center p-4 rounded-xl transition-all duration-300 active:scale-95 ${
+                      themeMode === 'dark' 
+                      ? 'bg-teal-50/70 dark:bg-teal-500/10 border border-teal-200 dark:border-teal-700 shadow-sm' 
+                      : 'bg-slate-50 dark:bg-slate-700/30 border border-transparent hover:bg-slate-100 dark:hover:bg-slate-700/60'
+                    }`}
                   >
-                    {clearingCache ? (
-                      <>
-                        <Loader2 className="h-5 w-5 animate-spin" />
-                        <span>{t.clearing}</span>
-                      </>
-                    ) : showClearSuccess ? (
-                      <>
-                        <CheckCircle className="h-5 w-5" />
-                        <span>{t.cleared}</span>
-                      </>
-                    ) : (
-                      <>
-                        <Trash className="h-5 w-5" />
-                        <span>{t.clearCache}</span>
-                      </>
-                    )}
+                    <Moon className={`h-7 w-7 mb-2.5 transition-colors ${themeMode === 'dark' ? 'text-teal-600 dark:text-teal-400' : 'text-slate-400 dark:text-slate-500'}`} />
+                    <span className={`text-[13px] font-medium transition-colors ${themeMode === 'dark' ? 'text-teal-700 dark:text-teal-300' : 'text-slate-600 dark:text-slate-400'}`}>{t.dark}</span>
+                  </button>
+
+                  <button
+                    onClick={() => setThemeMode('system')}
+                    className={`flex flex-col items-center justify-center p-4 rounded-xl transition-all duration-300 active:scale-95 ${
+                      themeMode === 'system' 
+                      ? 'bg-teal-50/70 dark:bg-teal-500/10 border border-teal-200 dark:border-teal-700 shadow-sm' 
+                      : 'bg-slate-50 dark:bg-slate-700/30 border border-transparent hover:bg-slate-100 dark:hover:bg-slate-700/60'
+                    }`}
+                  >
+                    <Monitor className={`h-7 w-7 mb-2.5 transition-colors ${themeMode === 'system' ? 'text-teal-600 dark:text-teal-400' : 'text-slate-400 dark:text-slate-500'}`} />
+                    <span className={`text-[13px] font-medium transition-colors ${themeMode === 'system' ? 'text-teal-700 dark:text-teal-300' : 'text-slate-600 dark:text-slate-400'}`}>{t.system}</span>
                   </button>
                 </div>
               </div>
+              {themeMode === 'system' && (
+                <p className="text-xs text-slate-500 dark:text-slate-400 ml-4 pt-1 opacity-80">
+                  {currentLang === 'zh' ? `当前跟随系统: ${theme === 'dark' ? '深色' : '浅色'}` : `Following system: ${theme === 'dark' ? 'Dark' : 'Light'}`}
+                </p>
+              )}
             </div>
-          </>
-        )}
+          )}
+
+          {/* Notifications Component */}
+          {activeSection === 'notifications' && (
+            <div className="space-y-2">
+              <h2 className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider ml-4 mb-1">{t.notificationPrefs}</h2>
+              <div className="bg-white dark:bg-slate-800 rounded-[20px] shadow-sm border border-slate-200/60 dark:border-slate-700/50 overflow-hidden">
+                <div className="flex flex-col">
+                  
+                  {/* Item 1 */}
+                  <div className="p-4 flex items-center justify-between active:bg-slate-50 dark:active:bg-slate-700/50 transition-colors">
+                    <div className="flex items-center gap-3.5 flex-1 pr-4">
+                      <div className="w-[34px] h-[34px] rounded-[10px] bg-rose-50 dark:bg-rose-500/10 text-rose-500 dark:text-rose-400 flex items-center justify-center shrink-0">
+                        <Tag className="h-5 w-5" />
+                      </div>
+                      <div className="flex flex-col">
+                        <span className="font-medium text-[16px] leading-tight text-slate-800 dark:text-slate-200">{t.orderNotifications}</span>
+                        <span className="text-[12px] text-slate-500 dark:text-slate-400 mt-1 leading-snug line-clamp-1">{t.orderNotificationsDesc}</span>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => handleToggle('orderNotifications')}
+                      className={`relative inline-flex h-[28px] w-[50px] shrink-0 items-center rounded-full transition-colors duration-300 focus:outline-none ${
+                        notificationSettings.orderNotifications ? 'bg-teal-500' : 'bg-slate-200 dark:bg-slate-600'
+                      }`}
+                    >
+                      <span
+                        className={`inline-block h-[24px] w-[24px] transform rounded-full bg-white shadow-sm transition-transform duration-300 ease-in-out ${
+                          notificationSettings.orderNotifications ? 'translate-x-[24px]' : 'translate-x-[2px]'
+                        }`}
+                      />
+                    </button>
+                  </div>
+                  
+                  <div className="h-[1px] bg-slate-100 dark:bg-slate-700/50 ml-[64px]"></div>
+
+                  {/* Item 2 */}
+                  <div className="p-4 flex items-center justify-between active:bg-slate-50 dark:active:bg-slate-700/50 transition-colors">
+                    <div className="flex items-center gap-3.5 flex-1 pr-4">
+                      <div className="w-[34px] h-[34px] rounded-[10px] bg-indigo-50 dark:bg-indigo-500/10 text-indigo-500 dark:text-indigo-400 flex items-center justify-center shrink-0">
+                        <MessageSquare className="h-5 w-5" />
+                      </div>
+                      <div className="flex flex-col">
+                        <span className="font-medium text-[16px] leading-tight text-slate-800 dark:text-slate-200">{t.messageNotifications}</span>
+                        <span className="text-[12px] text-slate-500 dark:text-slate-400 mt-1 leading-snug line-clamp-1">{t.messageNotificationsDesc}</span>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => handleToggle('messageNotifications')}
+                      className={`relative inline-flex h-[28px] w-[50px] shrink-0 items-center rounded-full transition-colors duration-300 focus:outline-none ${
+                        notificationSettings.messageNotifications ? 'bg-teal-500' : 'bg-slate-200 dark:bg-slate-600'
+                      }`}
+                    >
+                      <span
+                        className={`inline-block h-[24px] w-[24px] transform rounded-full bg-white shadow-sm transition-transform duration-300 ease-in-out ${
+                          notificationSettings.messageNotifications ? 'translate-x-[24px]' : 'translate-x-[2px]'
+                        }`}
+                      />
+                    </button>
+                  </div>
+
+                  <div className="h-[1px] bg-slate-100 dark:bg-slate-700/50 ml-[64px]"></div>
+
+                  {/* Item 3 */}
+                  <div className="p-4 flex items-center justify-between active:bg-slate-50 dark:active:bg-slate-700/50 transition-colors">
+                    <div className="flex items-center gap-3.5 flex-1 pr-4">
+                      <div className="w-[34px] h-[34px] rounded-[10px] bg-sky-50 dark:bg-sky-500/10 text-sky-500 dark:text-sky-400 flex items-center justify-center shrink-0">
+                        <Bell className="h-5 w-5" />
+                      </div>
+                      <div className="flex flex-col">
+                        <span className="font-medium text-[16px] leading-tight text-slate-800 dark:text-slate-200">{t.systemNotifications}</span>
+                        <span className="text-[12px] text-slate-500 dark:text-slate-400 mt-1 leading-snug line-clamp-1">{t.systemNotificationsDesc}</span>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => handleToggle('systemNotifications')}
+                      className={`relative inline-flex h-[28px] w-[50px] shrink-0 items-center rounded-full transition-colors duration-300 focus:outline-none ${
+                        notificationSettings.systemNotifications ? 'bg-teal-500' : 'bg-slate-200 dark:bg-slate-600'
+                      }`}
+                    >
+                      <span
+                        className={`inline-block h-[24px] w-[24px] transform rounded-full bg-white shadow-sm transition-transform duration-300 ease-in-out ${
+                          notificationSettings.systemNotifications ? 'translate-x-[24px]' : 'translate-x-[2px]'
+                        }`}
+                      />
+                    </button>
+                  </div>
+
+                  <div className="h-[1px] bg-slate-100 dark:bg-slate-700/50 ml-[64px]"></div>
+
+                  {/* Item 4 */}
+                  <div className="p-4 flex items-center justify-between active:bg-slate-50 dark:active:bg-slate-700/50 transition-colors">
+                    <div className="flex items-center gap-3.5 flex-1 pr-4">
+                      <div className="w-[34px] h-[34px] rounded-[10px] bg-amber-50 dark:bg-amber-500/10 text-amber-500 dark:text-amber-400 flex items-center justify-center shrink-0">
+                        <Tag className="h-5 w-5" />
+                      </div>
+                      <div className="flex flex-col">
+                        <span className="font-medium text-[16px] leading-tight text-slate-800 dark:text-slate-200">{t.promotionalNotifications}</span>
+                        <span className="text-[12px] text-slate-500 dark:text-slate-400 mt-1 leading-snug line-clamp-1">{t.promotionalNotificationsDesc}</span>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => handleToggle('promotionalNotifications')}
+                      className={`relative inline-flex h-[28px] w-[50px] shrink-0 items-center rounded-full transition-colors duration-300 focus:outline-none ${
+                        notificationSettings.promotionalNotifications ? 'bg-teal-500' : 'bg-slate-200 dark:bg-slate-600'
+                      }`}
+                    >
+                      <span
+                        className={`inline-block h-[24px] w-[24px] transform rounded-full bg-white shadow-sm transition-transform duration-300 ease-in-out ${
+                          notificationSettings.promotionalNotifications ? 'translate-x-[24px]' : 'translate-x-[2px]'
+                        }`}
+                      />
+                    </button>
+                  </div>
+
+                </div>
+              </div>
+
+              {/* Enhanced Save Button */}
+              <button
+                onClick={handleSave}
+                disabled={saving}
+                className="mt-8 relative w-full overflow-hidden group bg-teal-500 hover:bg-teal-600 disabled:bg-teal-400 disabled:opacity-70 text-white font-medium py-3.5 px-6 rounded-[16px] transition-all duration-300 shadow-lg shadow-teal-500/25 hover:shadow-xl hover:shadow-teal-500/40 active:scale-[0.98] flex items-center justify-center gap-2"
+              >
+                <div className="absolute inset-0 bg-white/20 translate-y-[100%] group-hover:translate-y-0 transition-transform duration-300 ease-in-out"></div>
+                <div className="relative flex items-center gap-2">
+                  {saving ? (
+                    <>
+                      <Loader2 className="h-[18px] w-[18px] animate-spin" />
+                      <span className="text-[16px]">{t.saving}</span>
+                    </>
+                  ) : showSuccess ? (
+                    <>
+                      <CheckCircle className="h-[18px] w-[18px] animate-bounce-slight" />
+                      <span className="text-[16px] font-semibold">{t.saved}</span>
+                    </>
+                  ) : (
+                    <span className="text-[16px] font-semibold tracking-wide">{t.save}</span>
+                  )}
+                </div>
+              </button>
+            </div>
+          )}
+
+          {/* Cache Component */}
+          {activeSection === 'cache' && (
+            <div className="space-y-2">
+              <h2 className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider ml-4 mb-1">{t.storage}</h2>
+              <div className="bg-white dark:bg-slate-800 rounded-[20px] shadow-sm border border-slate-200/60 dark:border-slate-700/50 p-5">
+                <div className="flex items-center justify-between mb-5">
+                  <div>
+                    <p className="text-[13px] text-slate-500 dark:text-slate-400 font-medium mb-1.5">{t.currentCache}</p>
+                    <p className="text-3xl font-bold text-slate-800 dark:text-slate-100 font-mono tracking-tight">
+                      {formatBytes(cacheSize)}
+                    </p>
+                  </div>
+                  <div className="w-14 h-14 rounded-2xl bg-teal-50/70 dark:bg-teal-500/10 border border-teal-100 dark:border-teal-800/50 flex items-center justify-center">
+                    <Server className="h-7 w-7 text-teal-500" />
+                  </div>
+                </div>
+
+                <p className="text-[13px] text-slate-500 dark:text-slate-400 mb-6 leading-relaxed opacity-90">
+                  {t.clearCacheDesc}
+                </p>
+
+                <button
+                  onClick={handleClearCache}
+                  disabled={clearingCache || cacheSize === 0}
+                  className="w-full bg-rose-50 dark:bg-rose-500/10 hover:bg-rose-100 dark:hover:bg-rose-500/20 disabled:bg-slate-50 dark:disabled:bg-slate-800/50 disabled:text-slate-400 dark:disabled:text-slate-500 text-rose-500 dark:text-rose-400 font-semibold py-3.5 rounded-[14px] transition-all duration-300 flex items-center justify-center gap-2 border border-rose-100 dark:border-rose-900/30 disabled:border-transparent active:scale-[0.98]"
+                >
+                  {clearingCache ? (
+                    <>
+                      <Loader2 className="h-[18px] w-[18px] animate-spin" />
+                      <span className="text-[15px]">{t.clearing}</span>
+                    </>
+                  ) : showClearSuccess ? (
+                    <>
+                      <CheckCircle className="h-[18px] w-[18px] text-emerald-500" />
+                      <span className="text-[15px] text-emerald-500">{t.cleared}</span>
+                    </>
+                  ) : (
+                    <>
+                      <Trash className="h-[18px] w-[18px]" />
+                      <span className="text-[15px]">{t.clearCache}</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          )}
+          
+        </div>
       </div>
     </div>
   );

@@ -1,0 +1,5 @@
+- [x] MiniMax API基础URL已修正为'https://api.minimax.chat/v1'
+- [x] API Key配置正确且能正常读取
+- [x] 后端服务重启后运行正常
+- [x] AI功能测试通过，不再显示网络异常错误
+- [x] 系统日志中无API调用错误

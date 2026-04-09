@@ -14,25 +14,29 @@ import {
   SlidersHorizontal,
   Phone,
   Navigation,
+  Globe,
 } from 'lucide-react';
 import { apiService } from '../services/apiService';
 import { Hospital, EscortProfile, PaginatedResponse } from '../types';
 import { SearchBar } from './SearchBar';
+import { NativeWebSearch } from './NativeWebSearch';
 
 interface SearchResultsProps {
   lang: 'zh' | 'en';
   onBack: () => void;
   initialQuery?: string;
-  initialType?: 'hospital' | 'escort' | 'all';
+  initialType?: 'hospital' | 'escort' | 'all' | 'web';
 }
 
-type SearchType = 'hospital' | 'escort' | 'all';
+type SearchType = 'hospital' | 'escort' | 'all' | 'web';
 type SortOption = 'rating' | 'distance' | 'price' | 'orders' | 'name';
 
 export const SearchResults: React.FC<SearchResultsProps> = ({ lang, onBack, initialQuery = '', initialType = 'all' }) => {
   const [searchQuery, setSearchQuery] = useState(initialQuery);
   const [searchType, setSearchType] = useState<SearchType>(initialType);
-  const [activeTab, setActiveTab] = useState<'hospitals' | 'escorts'>('hospitals');
+  const [activeTab, setActiveTab] = useState<'hospitals' | 'escorts' | 'web'>(
+    initialType === 'escort' ? 'escorts' : initialType === 'web' ? 'web' : 'hospitals'
+  );
 
   // Results state
   const [hospitals, setHospitals] = useState<PaginatedResponse<Hospital> | null>(null);
@@ -59,6 +63,7 @@ export const SearchResults: React.FC<SearchResultsProps> = ({ lang, onBack, init
       back: '返回',
       hospitals: '医院',
       escorts: '陪诊师',
+      web: '全网',
       all: '全部',
       filters: '筛选',
       sortBy: '排序',
@@ -95,6 +100,7 @@ export const SearchResults: React.FC<SearchResultsProps> = ({ lang, onBack, init
       back: 'Back',
       hospitals: 'Hospitals',
       escorts: 'Escorts',
+      web: 'Web',
       all: 'All',
       filters: 'Filters',
       sortBy: 'Sort by',
@@ -229,6 +235,8 @@ export const SearchResults: React.FC<SearchResultsProps> = ({ lang, onBack, init
       setActiveTab('hospitals');
     } else if (type === 'escort') {
       setActiveTab('escorts');
+    } else if (type === 'web') {
+      setActiveTab('web');
     }
 
     performSearch(query, type);
@@ -338,12 +346,30 @@ export const SearchResults: React.FC<SearchResultsProps> = ({ lang, onBack, init
               <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-teal-500" />
             )}
           </button>
+          <button
+            onClick={() => setActiveTab('web')}
+            className={`flex-1 py-3 text-sm font-medium relative transition-colors ${
+              activeTab === 'web'
+                ? 'text-teal-600 dark:text-teal-400'
+                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+            }`}
+          >
+            <span className="flex items-center justify-center gap-2">
+              <Globe className="h-4 w-4" />
+              {t.web}
+            </span>
+            {activeTab === 'web' && (
+              <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-teal-500" />
+            )}
+          </button>
         </div>
       </div>
 
       {/* Results */}
       <div className="p-4">
-        {isLoading && !currentResults?.data.length ? (
+        {activeTab === 'web' ? (
+          <NativeWebSearch query={searchQuery} lang={lang} />
+        ) : isLoading && !currentResults?.data.length ? (
           <div className="flex flex-col items-center justify-center py-20">
             <Loader2 className="h-10 w-10 animate-spin text-teal-500 mb-4" />
             <p className="text-slate-500 dark:text-slate-400">{t.loading}</p>
