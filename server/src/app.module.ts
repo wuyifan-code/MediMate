@@ -22,6 +22,7 @@ import { KnowledgeGraphModule } from './modules/knowledge-graph/knowledge-graph.
 import { DigitalEvidenceModule } from './modules/digital-evidence/digital-evidence.module';
 import { NarrativeMedicineModule } from './modules/narrative-medicine/narrative-medicine.module';
 import { TrustModule } from './modules/trust/trust.module';
+import { MatchingModule } from './modules/matching/matching.module';
 
 @Module({
   imports: [
@@ -54,6 +55,7 @@ import { TrustModule } from './modules/trust/trust.module';
     DigitalEvidenceModule,
     NarrativeMedicineModule,
     TrustModule,
+    MatchingModule,
   ],
 })
 export class AppModule {}

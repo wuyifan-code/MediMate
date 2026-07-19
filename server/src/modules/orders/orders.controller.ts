@@ -1,7 +1,7 @@
 import { Controller, Get, Post, Patch, Body, Param, Query, UseGuards, Request } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { OrdersService } from './orders.service';
-import { CreateOrderDto, UpdateOrderDto, CancelOrderDto, RefundOrderDto, OrderQueryDto } from './dto/orders.dto';
+import { CreateOrderDto, UpdateOrderDto, CancelOrderDto, RefundOrderDto, OrderQueryDto, SmartMatchDto } from './dto/orders.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { OrderStatus } from '@prisma/client';
 
@@ -12,14 +12,34 @@ import { OrderStatus } from '@prisma/client';
 export class OrdersController {
   constructor(private readonly ordersService: OrdersService) {}
 
+  @Post('smart-match')
+  @ApiOperation({
+    summary: '智能匹配推荐陪诊师',
+    description:
+      '基于 MDWMA 多维加权匹配算法，根据医院科室、患者位置、预算等条件，' +
+      '返回按综合匹配度排序的陪诊师推荐列表。用于下单前的推荐环节。',
+  })
+  async smartMatch(@Body() dto: SmartMatchDto) {
+    const result = await this.ordersService.smartMatch(dto);
+    return {
+      success: true,
+      data: result,
+    };
+  }
+
   @Post()
-  @ApiOperation({ summary: '创建新订单' })
+  @ApiOperation({
+    summary: '创建新订单',
+    description: '创建订单。如不指定 escortId，系统将自动运行 MDWMA 算法匹配最优陪诊师。',
+  })
   async create(@Request() req: any, @Body() dto: CreateOrderDto) {
     const order = await this.ordersService.create(req.user.sub, dto);
     return {
       success: true,
       data: order,
-      message: '订单创建成功',
+      message: order.matching?.autoMatched
+        ? `订单创建成功，已智能匹配陪诊师（匹配度 ${order.matching.compositeScorePercent}%）`
+        : '订单创建成功',
     };
   }
 

@@ -3,9 +3,15 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { ServiceType, OrderStatus } from '@prisma/client';
 
 export class CreateOrderDto {
-  @ApiProperty({ description: '陪诊师ID' })
+  @ApiPropertyOptional({ description: '陪诊师ID（不填则自动智能匹配最优陪诊师）' })
+  @IsOptional()
   @IsString()
-  escortId: string;
+  escortId?: string;
+
+  @ApiPropertyOptional({ description: '目标科室（用于智能匹配，如不填则从医院信息推导）' })
+  @IsOptional()
+  @IsString()
+  department?: string;
 
   @ApiPropertyOptional({ description: '医院ID' })
   @IsOptional()
@@ -108,4 +114,43 @@ export class RefundOrderDto {
   @IsOptional()
   @IsString()
   reason?: string;
+}
+
+export class SmartMatchDto {
+  @ApiPropertyOptional({ description: '医院ID（用于推导科室）' })
+  @IsOptional()
+  @IsString()
+  hospitalId?: string;
+
+  @ApiPropertyOptional({ description: '目标科室（优先于医院推导）', example: '心内科' })
+  @IsOptional()
+  @IsString()
+  department?: string;
+
+  @ApiPropertyOptional({ description: '患者/医院纬度', example: 26.647 })
+  @IsOptional()
+  @IsNumber()
+  latitude?: number;
+
+  @ApiPropertyOptional({ description: '患者/医院经度', example: 106.630 })
+  @IsOptional()
+  @IsNumber()
+  longitude?: number;
+
+  @ApiPropertyOptional({ description: '预算 (元/小时)', example: 80 })
+  @IsOptional()
+  @IsNumber()
+  budget?: number;
+
+  @ApiPropertyOptional({ description: '服务类型', enum: ServiceType })
+  @IsOptional()
+  @IsEnum(ServiceType)
+  serviceType?: ServiceType;
+
+  @ApiPropertyOptional({ description: '返回结果数量', default: 5 })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(20)
+  topK?: number;
 }

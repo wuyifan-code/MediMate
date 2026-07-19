@@ -1,11 +1,17 @@
-import { Injectable, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, ForbiddenException, BadRequestException, Logger } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
-import { CreateOrderDto, UpdateOrderDto, CancelOrderDto, RefundOrderDto } from './dto/orders.dto';
+import { MatchingService } from '../matching/matching.service';
+import { CreateOrderDto, UpdateOrderDto, CancelOrderDto, RefundOrderDto, SmartMatchDto } from './dto/orders.dto';
 import { OrderStatus, Prisma } from '@prisma/client';
 
 @Injectable()
 export class OrdersService {
-  constructor(private prisma: PrismaService) {}
+  private readonly logger = new Logger(OrdersService.name);
+
+  constructor(
+    private prisma: PrismaService,
+    private matchingService: MatchingService,
+  ) {}
 
   // 生成订单号
   private generateOrderNo(): string {
@@ -30,7 +36,7 @@ export class OrdersService {
     return coupons[couponCode.toUpperCase()] || 0;
   }
 
-  // 创建订单
+  // 创建订单（支持智能匹配自动分配陪诊师）
   async create(patientId: string, dto: CreateOrderDto) {
     // 计算总价
     const duration = dto.duration || 1;
@@ -42,6 +48,70 @@ export class OrdersService {
     // 生成订单号
     const orderNo = this.generateOrderNo();
 
+    // ===== 智能匹配：如果未指定陪诊师，自动匹配最优 =====
+    let escortId = dto.escortId;
+    let matchingMeta: any = null;
+
+    if (!escortId) {
+      this.logger.log(`[SmartMatch] No escortId provided, running MDWMA auto-match...`);
+
+      // 推导科室：优先用 dto.department，否则从医院信息获取
+      let department = dto.department;
+      if (!department && dto.hospitalId) {
+        const hospital = await this.prisma.hospital.findUnique({
+          where: { id: dto.hospitalId },
+          select: { department: true },
+        });
+        department = hospital?.department || '综合';
+      }
+      if (!department) {
+        department = '综合';
+      }
+
+      const matchResult = await this.matchingService.matchEscorts({
+        department,
+        budget: dto.price,
+        serviceType: dto.serviceType,
+        topK: 1,
+      });
+
+      if (matchResult.results.length === 0) {
+        throw new BadRequestException('暂无可用的陪诊师，请稍后重试或手动选择');
+      }
+
+      const topMatch = matchResult.results[0];
+      // 将陪诊师的 userId 映射为 escortId（订单表存的是 User.id）
+      const escortProfile = await this.prisma.escortProfile.findUnique({
+        where: { id: topMatch.escortId },
+        select: { userId: true },
+      });
+
+      if (!escortProfile) {
+        throw new BadRequestException('匹配到的陪诊师资料异常，请重试');
+      }
+
+      escortId = escortProfile.userId;
+      matchingMeta = {
+        autoMatched: true,
+        algorithm: matchResult.algorithm,
+        compositeScore: topMatch.compositeScore,
+        compositeScorePercent: topMatch.compositeScorePercent,
+        matchLevel: topMatch.matchLevel,
+        summary: topMatch.summary,
+        dimensions: topMatch.dimensions.map(d => ({
+          label: d.label,
+          score: d.score,
+          weight: d.weight,
+          explanation: d.explanation,
+        })),
+      };
+
+      this.logger.log(
+        `[SmartMatch] Auto-matched escort ${topMatch.name} ` +
+        `(score: ${topMatch.compositeScorePercent}%, level: ${topMatch.matchLevel})`
+      );
+    }
+
     // 使用事务确保数据一致性
     const result = await this.prisma.$transaction(async (tx) => {
       // 创建订单
@@ -49,7 +119,7 @@ export class OrdersService {
         data: {
           orderNo,
           patientId,
-          escortId: dto.escortId,
+          escortId,
           hospitalId: dto.hospitalId,
           serviceId: dto.serviceId,
           serviceType: dto.serviceType,
@@ -78,30 +148,70 @@ export class OrdersService {
       });
 
       // 创建订单状态历史
+      const historyNote = matchingMeta?.autoMatched
+        ? `订单创建成功（智能匹配：${matchingMeta.summary}）`
+        : '订单创建成功';
+
       await tx.orderStatusHistory.create({
         data: {
           orderId: order.id,
           status: OrderStatus.PENDING,
           createdBy: patientId,
-          note: '订单创建成功',
+          note: historyNote,
         },
       });
 
       // 创建通知给陪诊师
-      await tx.notification.create({
-        data: {
-          userId: dto.escortId,
-          type: 'ORDER_STATUS',
-          title: '新订单提醒',
-          content: '您有一个新的预约订单，请尽快处理',
-          data: { orderId: order.id, orderNo: order.orderNo },
-        },
-      });
+      if (escortId) {
+        await tx.notification.create({
+          data: {
+            userId: escortId,
+            type: 'ORDER_STATUS',
+            title: '新订单提醒',
+            content: matchingMeta?.autoMatched
+              ? `您有一个新的智能匹配订单（匹配度 ${matchingMeta.compositeScorePercent}%），请尽快处理`
+              : '您有一个新的预约订单，请尽快处理',
+            data: { orderId: order.id, orderNo: order.orderNo },
+          },
+        });
+      }
 
       return order;
     });
 
-    return result;
+    // 返回订单 + 匹配元数据
+    return {
+      ...result,
+      matching: matchingMeta,
+    };
+  }
+
+  /**
+   * 智能匹配推荐：根据医院/科室/位置/预算，返回 MDWMA 排序的陪诊师列表
+   * 用于前端下单前的"推荐陪诊师"环节
+   */
+  async smartMatch(dto: SmartMatchDto) {
+    // 推导科室
+    let department = dto.department;
+    if (!department && dto.hospitalId) {
+      const hospital = await this.prisma.hospital.findUnique({
+        where: { id: dto.hospitalId },
+        select: { department: true, name: true },
+      });
+      department = hospital?.department || '综合';
+    }
+    if (!department) {
+      department = '综合';
+    }
+
+    return this.matchingService.matchEscorts({
+      department,
+      latitude: dto.latitude,
+      longitude: dto.longitude,
+      budget: dto.budget,
+      serviceType: dto.serviceType,
+      topK: dto.topK || 5,
+    });
   }
 
   // 创建订单状态历史
