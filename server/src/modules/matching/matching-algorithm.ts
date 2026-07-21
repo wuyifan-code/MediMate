@@ -310,10 +310,116 @@ export class EntropyWeightMethod {
   }
 }
 
+// ==================== CRITIC 客观赋权 ====================
+
+/** CRITIC 计算结果 */
+export interface CRITICResult {
+  /** 客观权重向量 */
+  weights: number[];
+  /** 各维度标准差 (对比强度) */
+  stdDeviations: number[];
+  /** 维度间 Pearson 相关系数矩阵 */
+  correlationMatrix: number[][];
+  /** 各维度冲突度 (与其他维度的去相关程度之和) */
+  conflicts: number[];
+  /** 各维度信息量 = σⱼ × Σ(1-rⱼₖ) */
+  informationAmounts: number[];
+}
+
+/**
+ * CRITIC (Criteria Importance Through Intercriteria Correlation)
+ *
+ * 由 Diakoulaki et al. (1995) 提出的客观赋权方法。
+ * 与熵权法的区别: EWM 仅考虑值的分散程度 (信息熵)，
+ * CRITIC 同时考虑:
+ *   (1) 对比强度 (Contrast Intensity): 标准差 σⱼ 越大，区分力越强
+ *   (2) 冲突度 (Conflict): 与其他维度的相关性越低，独立信息越多
+ *
+ * 公式:
+ *   信息量: Iⱼ = σⱼ × Σₖ(1 - rⱼₖ)
+ *   权重:   wⱼ = Iⱼ / ΣIⱼ
+ *
+ * 其中 rⱼₖ 为第 j 维与第 k 维的 Pearson 相关系数。
+ *
+ * 学术价值: 若两个维度高度相关 (如信任分与服务质量)，
+ * CRITIC 会自动降低它们的权重，避免信息重复计算。
+ */
+export class CRITIC {
+  static solve(decisionMatrix: number[][]): CRITICResult {
+    const n = decisionMatrix.length;
+    const m = decisionMatrix[0].length;
+
+    // 1. 计算各维度均值和标准差
+    const means: number[] = [];
+    const stdDeviations: number[] = [];
+    for (let j = 0; j < m; j++) {
+      const col = decisionMatrix.map(row => row[j]);
+      const mean = col.reduce((a, b) => a + b, 0) / n;
+      means.push(mean);
+      const variance = col.reduce((sum, x) => sum + (x - mean) ** 2, 0) / n;
+      stdDeviations.push(Math.sqrt(variance));
+    }
+
+    // 2. Pearson 相关系数矩阵
+    const correlationMatrix: number[][] = [];
+    for (let j = 0; j < m; j++) {
+      correlationMatrix[j] = [];
+      for (let k = 0; k < m; k++) {
+        if (j === k) {
+          correlationMatrix[j][k] = 1;
+          continue;
+        }
+        const colJ = decisionMatrix.map(row => row[j]);
+        const colK = decisionMatrix.map(row => row[k]);
+        let cov = 0;
+        for (let i = 0; i < n; i++) {
+          cov += (colJ[i] - means[j]) * (colK[i] - means[k]);
+        }
+        cov /= n;
+        const r = (stdDeviations[j] > 0 && stdDeviations[k] > 0)
+          ? cov / (stdDeviations[j] * stdDeviations[k])
+          : 0;
+        correlationMatrix[j][k] = Math.round(r * 10000) / 10000;
+      }
+    }
+
+    // 3. 冲突度: Σₖ(1 - rⱼₖ)
+    const conflicts: number[] = [];
+    for (let j = 0; j < m; j++) {
+      let conflict = 0;
+      for (let k = 0; k < m; k++) {
+        if (k !== j) {
+          conflict += (1 - correlationMatrix[j][k]);
+        }
+      }
+      conflicts.push(Math.round(conflict * 10000) / 10000);
+    }
+
+    // 4. 信息量 Iⱼ = σⱼ × conflictⱼ
+    const informationAmounts = stdDeviations.map((sigma, j) =>
+      Math.round(sigma * conflicts[j] * 10000) / 10000
+    );
+
+    // 5. 归一化权重
+    const iSum = informationAmounts.reduce((a, b) => a + b, 0);
+    const weights = iSum > 0
+      ? informationAmounts.map(i => Math.round((i / iSum) * 10000) / 10000)
+      : new Array(m).fill(1 / m);
+
+    return {
+      weights,
+      stdDeviations: stdDeviations.map(s => Math.round(s * 10000) / 10000),
+      correlationMatrix,
+      conflicts,
+      informationAmounts,
+    };
+  }
+}
+
 // ==================== 组合赋权 ====================
 
 /**
- * AHP-熵权组合赋权
+ * AHP-熵权线性组合赋权 (基础版)
  *
  * 将主观权重 (AHP) 与客观权重 (EWM) 线性组合:
  *   w_combined = α × w_AHP + (1 - α) × w_EWM
@@ -330,6 +436,116 @@ export function combinedWeights(
   const combined = ahpWeights.map((w, i) => alpha * w + (1 - alpha) * ewmWeights[i]);
   const sum = combined.reduce((a, b) => a + b, 0);
   return combined.map(w => Math.round((w / sum) * 10000) / 10000);
+}
+
+// ==================== 博弈论组合赋权 ====================
+
+/** 博弈论组合赋权结果 */
+export interface GameTheoreticResult {
+  /** 最优组合权重向量 */
+  weights: number[];
+  /** 各权重集的均衡系数 (Nash 均衡解) */
+  equilibriumCoefficients: number[];
+  /** 组合权重与各单一赋权的偏差 */
+  deviations: number[];
+  /** 迭代收敛次数 */
+  iterations: number;
+}
+
+/**
+ * 博弈论组合赋权 (Game-Theoretic Combined Weighting)
+ *
+ * 动机: 线性组合中 α 的选取具有主观任意性。博弈论方法通过寻找 Nash 均衡，
+ * 使组合权重与各单一赋权结果的总偏差最小，实现主客观信息的"最妥协"融合。
+ *
+ * 数学模型:
+ *   给定 k 组权重向量 {w₁, w₂, ..., wₖ}，求线性组合:
+ *     w* = Σᵢ αᵢ × wᵢ,  s.t. Σαᵢ = 1, αᵢ ≥ 0
+ *
+ *   目标: min Σᵢ αᵢ × ||w* - wᵢ||²
+ *
+ *   Nash 均衡条件: 各权重集的"贡献"与其偏差成反比:
+ *     αᵢ* = (1/dᵢ) / Σⱼ(1/dⱼ),  dᵢ = ||w* - wᵢ||²
+ *
+ * 算法: 不动点迭代至收敛 (通常 5~20 次)
+ *
+ * 参考文献:
+ *   [1] 基于博弈论的组合赋权法在综合评价中的应用, 系统工程理论与实践
+ *   [2] AHP-熵权-博弈论组合赋权的多准则决策方法, 运筹与管理
+ */
+export class GameTheoreticWeighting {
+  /**
+   * @param weightVectors k 组权重向量 (每组长度 m，和为 1)
+   * @param maxIter 最大迭代次数
+   * @param epsilon 收敛阈值
+   */
+  static solve(
+    weightVectors: number[][],
+    maxIter: number = 100,
+    epsilon: number = 1e-8,
+  ): GameTheoreticResult {
+    const k = weightVectors.length;
+    const m = weightVectors[0].length;
+
+    // 初始系数: 均匀
+    let alpha = new Array(k).fill(1 / k);
+    let iterations = 0;
+
+    for (let iter = 0; iter < maxIter; iter++) {
+      iterations = iter + 1;
+
+      // 计算组合权重 w* = Σ αᵢ × wᵢ
+      const wStar = new Array(m).fill(0);
+      for (let i = 0; i < k; i++) {
+        for (let j = 0; j < m; j++) {
+          wStar[j] += alpha[i] * weightVectors[i][j];
+        }
+      }
+
+      // 计算各权重集与组合权重的偏差 dᵢ = ||w* - wᵢ||²
+      const deviations = weightVectors.map(w =>
+        w.reduce((sum, wj, j) => sum + (wStar[j] - wj) ** 2, 0)
+      );
+
+      // Nash 均衡更新: αᵢ = (1/dᵢ) / Σ(1/dⱼ)
+      // 处理 dᵢ = 0 的情况 (完全一致)
+      const invD = deviations.map(d => d > 1e-15 ? 1 / d : 1e15);
+      const invDSum = invD.reduce((a, b) => a + b, 0);
+      const newAlpha = invD.map(v => v / invDSum);
+
+      // 收敛判断
+      const maxDiff = Math.max(...newAlpha.map((v, i) => Math.abs(v - alpha[i])));
+      alpha = newAlpha;
+
+      if (maxDiff < epsilon) break;
+    }
+
+    // 最终组合权重
+    const weights = new Array(m).fill(0);
+    for (let i = 0; i < k; i++) {
+      for (let j = 0; j < m; j++) {
+        weights[j] += alpha[i] * weightVectors[i][j];
+      }
+    }
+
+    // 归一化
+    const wSum = weights.reduce((a, b) => a + b, 0);
+    const normalizedWeights = weights.map(w => Math.round((w / wSum) * 10000) / 10000);
+
+    // 最终偏差
+    const finalDeviations = weightVectors.map(w =>
+      Math.round(
+        Math.sqrt(w.reduce((sum, wj, j) => sum + (normalizedWeights[j] - wj) ** 2, 0)) * 10000
+      ) / 10000
+    );
+
+    return {
+      weights: normalizedWeights,
+      equilibriumCoefficients: alpha.map(a => Math.round(a * 10000) / 10000),
+      deviations: finalDeviations,
+      iterations,
+    };
+  }
 }
 
 // ==================== TOPSIS 逼近理想解排序 ====================
@@ -410,6 +626,198 @@ export class TOPSIS {
       .map(x => x.i);
 
     return { closeness, distanceToIdeal, distanceToAntiIdeal, ranking };
+  }
+}
+
+// ==================== VIKOR 妥协解排序 ====================
+
+/** VIKOR 排序结果 */
+export interface VIKORResult {
+  /** 群体效用值 Sᵢ (加权偏差和，越小越优) */
+  S: number[];
+  /** 个体遗憾值 Rᵢ (最大加权偏差，越小越优) */
+  R: number[];
+  /** 妥协排序指标 Qᵢ ∈ [0, 1] (越小越优) */
+  Q: number[];
+  /** 排序索引 (从最优到最差，按 Q 升序) */
+  ranking: number[];
+  /** 决策策略系数 v */
+  v: number;
+  /** 是否满足可接受优势条件 (Q₁ - Q₂ ≥ DQ) */
+  acceptableAdvantage: boolean;
+  /** 是否满足可接受稳定性条件 */
+  acceptableStability: boolean;
+  /** 妥协解是否成立 */
+  compromiseValid: boolean;
+}
+
+/**
+ * VIKOR (VlseKriterijumska Optimizacija I Kompromisno Resenje)
+ *
+ * 多准则妥协解排序方法，由 Opricovic (1998) 提出。
+ * 与 TOPSIS 的区别: VIKOR 同时考虑"群体效用最大化"和"个体遗憾最小化"，
+ * 更适合存在准则间冲突的决策场景。
+ *
+ * 步骤:
+ *   1. 确定正理想解 f*ⱼ = maxᵢ fᵢⱼ 和负理想解 f⁻ⱼ = minᵢ fᵢⱼ
+ *   2. 计算群体效用: Sᵢ = Σⱼ wⱼ(f*ⱼ - fᵢⱼ) / (f*ⱼ - f⁻ⱼ)
+ *   3. 计算个体遗憾: Rᵢ = maxⱼ [wⱼ(f*ⱼ - fᵢⱼ) / (f*ⱼ - f⁻ⱼ)]
+ *   4. 计算妥协指标: Qᵢ = v(Sᵢ - S*)/(S⁻ - S*) + (1-v)(Rᵢ - R*)/(R⁻ - R*)
+ *      其中 S* = min Sᵢ, S⁻ = max Sᵢ, R* = min Rᵢ, R⁻ = max Rᵢ
+ *   5. 按 Q 升序排序
+ *   6. 验证妥协解可接受条件:
+ *      (a) 可接受优势: Q₂ - Q₁ ≥ DQ = 1/(n-1)
+ *      (b) 可接受稳定: Q₁ 最小的方案同时在 S 或 R 排序中最优
+ *
+ * @param v 决策策略系数 (v=0.5 为多数规则, v>0.5 偏重群体效用, v<0.5 偏重个体遗憾)
+ */
+export class VIKOR {
+  static solve(decisionMatrix: number[][], weights: number[], v: number = 0.5): VIKORResult {
+    const n = decisionMatrix.length;
+    const m = weights.length;
+
+    // 1. 正/负理想解 (所有维度为效益型)
+    const fStar: number[] = [];
+    const fMinus: number[] = [];
+    for (let j = 0; j < m; j++) {
+      const col = decisionMatrix.map(row => row[j]);
+      fStar.push(Math.max(...col));
+      fMinus.push(Math.min(...col));
+    }
+
+    // 2. 群体效用 Sᵢ 和个体遗憾 Rᵢ
+    const S: number[] = [];
+    const R: number[] = [];
+    for (let i = 0; i < n; i++) {
+      let si = 0;
+      let ri = 0;
+      for (let j = 0; j < m; j++) {
+        const range = fStar[j] - fMinus[j];
+        const normalizedDeviation = range > 0
+          ? weights[j] * (fStar[j] - decisionMatrix[i][j]) / range
+          : 0;
+        si += normalizedDeviation;
+        ri = Math.max(ri, normalizedDeviation);
+      }
+      S.push(Math.round(si * 10000) / 10000);
+      R.push(Math.round(ri * 10000) / 10000);
+    }
+
+    // 3. 妥协指标 Qᵢ
+    const SStar = Math.min(...S);
+    const SMinus = Math.max(...S);
+    const RStar = Math.min(...R);
+    const RMinus = Math.max(...R);
+
+    const Q = S.map((si, i) => {
+      const sTerm = (SMinus - SStar) > 0 ? (si - SStar) / (SMinus - SStar) : 0;
+      const rTerm = (RMinus - RStar) > 0 ? (R[i] - RStar) / (RMinus - RStar) : 0;
+      return Math.round((v * sTerm + (1 - v) * rTerm) * 10000) / 10000;
+    });
+
+    // 4. 按 Q 升序排序 (Q 越小越优)
+    const ranking = Q
+      .map((q, i) => ({ q, i }))
+      .sort((a, b) => a.q - b.q)
+      .map(x => x.i);
+
+    // 5. 妥协解可接受性验证
+    const DQ = n > 1 ? 1 / (n - 1) : 1;
+    const sortedQ = ranking.map(i => Q[i]);
+    const acceptableAdvantage = n > 1 ? (sortedQ[1] - sortedQ[0]) >= DQ : true;
+
+    // 稳定性: Q 最优方案在 S 排序或 R 排序中也最优
+    const sRanking = S.map((s, i) => ({ s, i })).sort((a, b) => a.s - b.s).map(x => x.i);
+    const rRanking = R.map((r, i) => ({ r, i })).sort((a, b) => a.r - b.r).map(x => x.i);
+    const qBest = ranking[0];
+    const acceptableStability = sRanking[0] === qBest || rRanking[0] === qBest;
+
+    return {
+      S, R, Q, ranking, v,
+      acceptableAdvantage,
+      acceptableStability,
+      compromiseValid: acceptableAdvantage && acceptableStability,
+    };
+  }
+}
+
+// ==================== Borda-Copeland 排名聚合 ====================
+
+/** 排名聚合结果 */
+export interface RankAggregationResult {
+  /** Borda 得分 (越高越优) */
+  bordaScores: number[];
+  /** Copeland 净胜分 (胜+1, 负-1, 平0) */
+  copelandScores: number[];
+  /** 最终聚合排序 (从最优到最差) */
+  finalRanking: number[];
+  /** 各方法的原始排序 */
+  inputRankings: number[][];
+  /** 方法名称 */
+  methodNames: string[];
+}
+
+/**
+ * Borda-Copeland 排名聚合
+ *
+ * 动机: 单一 MCDM 方法可能因方法偏差导致排序不稳定。
+ * 通过融合多种方法的排序结果，获得更鲁棒的最终排序。
+ *
+ * Borda 计数: 排名第 k 位得 (n-k) 分，总分越高越优。
+ * Copeland 法: 对每对候选 (i,j)，若在多数方法中 i 排在 j 前面，
+ *   则 i 得 +1, j 得 -1; 平局各得 0。净胜分越高越优。
+ *
+ * 最终排序: 按 Copeland 净胜分降序 (Borda 作为 tiebreaker)。
+ */
+export class RankAggregation {
+  /**
+   * @param rankings 各方法的排序索引数组 (每个数组是候选索引的排列)
+   * @param methodNames 方法名称 (用于可解释性)
+   */
+  static solve(rankings: number[][], methodNames: string[] = []): RankAggregationResult {
+    const n = rankings[0].length;
+    const k = rankings.length;
+
+    // Borda 计数
+    const bordaScores = new Array(n).fill(0);
+    for (const ranking of rankings) {
+      ranking.forEach((candidateIdx, position) => {
+        bordaScores[candidateIdx] += (n - 1 - position);
+      });
+    }
+
+    // Copeland 净胜分
+    const copelandScores = new Array(n).fill(0);
+    for (let i = 0; i < n; i++) {
+      for (let j = i + 1; j < n; j++) {
+        let iWins = 0;
+        let jWins = 0;
+        for (const ranking of rankings) {
+          const posI = ranking.indexOf(i);
+          const posJ = ranking.indexOf(j);
+          if (posI < posJ) iWins++;
+          else if (posJ < posI) jWins++;
+        }
+        if (iWins > jWins) { copelandScores[i]++; copelandScores[j]--; }
+        else if (jWins > iWins) { copelandScores[j]++; copelandScores[i]--; }
+        // 平局: 各得 0
+      }
+    }
+
+    // 最终排序: Copeland 降序, Borda 降序 (tiebreaker)
+    const finalRanking = Array.from({ length: n }, (_, i) => i)
+      .sort((a, b) => {
+        if (copelandScores[b] !== copelandScores[a]) return copelandScores[b] - copelandScores[a];
+        return bordaScores[b] - bordaScores[a];
+      });
+
+    return {
+      bordaScores,
+      copelandScores,
+      finalRanking,
+      inputRankings: rankings,
+      methodNames,
+    };
   }
 }
 
@@ -842,6 +1250,406 @@ export class MatchingAlgorithm {
         method: 'AHP-EWM-TOPSIS (α=' + alpha + ')',
       },
     };
+  }
+
+  // ==================== 硬约束预筛选 ====================
+
+  /** 硬约束配置 */
+  static readonly HARD_CONSTRAINTS = {
+    /** 必须已认证 */
+    requireVerified: true,
+    /** 科室匹配最低分 (0 = 无要求, 0.6 = 至少相关) */
+    minSpecialtyScore: 0.0,
+    /** 信任分最低值 */
+    minTrustScore: 0,
+  };
+
+  /**
+   * 硬约束预筛选
+   *
+   * 在进入 MCDM 排序之前，先过滤不满足刚性条件的候选:
+   *   - 未认证陪诊师排除 (医疗安全底线)
+   *   - 科室完全不匹配排除 (避免推荐骨科陪诊师给心内科患者)
+   *   - 信任分过低排除 (安全阈值)
+   *
+   * 硬约束与软约束的区别:
+   *   硬约束 = 不满足则直接淘汰 (0/1 判定)
+   *   软约束 = 满足程度影响排序得分 (连续评分)
+   */
+  static filterHardConstraints(
+    escorts: EscortFeatureVector[],
+    request: MatchingRequest,
+  ): { passed: EscortFeatureVector[]; filtered: { escort: EscortFeatureVector; reason: string }[] } {
+    const passed: EscortFeatureVector[] = [];
+    const filtered: { escort: EscortFeatureVector; reason: string }[] = [];
+
+    for (const escort of escorts) {
+      // 认证检查
+      if (MatchingAlgorithm.HARD_CONSTRAINTS.requireVerified && !escort.isVerified) {
+        filtered.push({ escort, reason: '未通过平台认证' });
+        continue;
+      }
+
+      // 科室匹配阈值
+      const specScore = MatchingAlgorithm.specialtyScore(escort.specialties, request.department).score;
+      if (specScore < MatchingAlgorithm.HARD_CONSTRAINTS.minSpecialtyScore) {
+        filtered.push({ escort, reason: `科室匹配度 ${specScore} 低于阈值 ${MatchingAlgorithm.HARD_CONSTRAINTS.minSpecialtyScore}` });
+        continue;
+      }
+
+      // 信任分阈值
+      if (escort.trustScore < MatchingAlgorithm.HARD_CONSTRAINTS.minTrustScore) {
+        filtered.push({ escort, reason: `信任分 ${escort.trustScore} 低于阈值 ${MatchingAlgorithm.HARD_CONSTRAINTS.minTrustScore}` });
+        continue;
+      }
+
+      passed.push(escort);
+    }
+
+    return { passed, filtered };
+  }
+
+  // ==================== 完整多方法融合决策管线 ====================
+
+  /**
+   * 完整决策管线: 硬约束 → 博弈论赋权 → WSM/TOPSIS/VIKOR → Borda-Copeland 聚合
+   *
+   * 这是论文中提出的完整 MDWMA v2 算法流程:
+   *
+   *   Phase 1 - 硬约束预筛选:
+   *     过滤未认证、科室不匹配、信任分过低的候选
+   *
+   *   Phase 2 - 博弈论组合赋权:
+   *     AHP 主观权重 + EWM 客观权重 → Nash 均衡最优组合
+   *     (消除 α 参数的主观任意性)
+   *
+   *   Phase 3 - 三重排序:
+   *     (a) WSM 加权求和排序 (基准方法)
+   *     (b) TOPSIS 逼近理想解排序
+   *     (c) VIKOR 妥协解排序
+   *
+   *   Phase 4 - Borda-Copeland 排名聚合:
+   *     融合三种排序，输出鲁棒最终排序
+   *
+   * @param escorts 候选陪诊师集合
+   * @param request 患者匹配请求
+   * @param topK 返回前 K 个结果
+   * @param v VIKOR 决策策略系数 (默认 0.5)
+   */
+  static rankEscortsFull(
+    escorts: EscortFeatureVector[],
+    request: MatchingRequest,
+    topK: number = 10,
+    v: number = 0.5,
+  ): {
+    results: MatchingResult[];
+    meta: {
+      hardConstraints: { total: number; passed: number; filtered: number };
+      ahp: AHPResult;
+      ewm: EWMResult;
+      gameTheoretic: GameTheoreticResult;
+      critic: CRITICResult;
+      topsis: TOPSISResult;
+      vikor: VIKORResult;
+      aggregation: RankAggregationResult;
+      method: string;
+    };
+  } {
+    // Phase 1: 硬约束预筛选
+    const { passed } = MatchingAlgorithm.filterHardConstraints(escorts, request);
+    const candidates = passed.length > 0 ? passed : escorts; // 全部被过滤时回退
+
+    // Phase 2: 三源博弈论组合赋权 (AHP + EWM + CRITIC)
+    const ahp = AHPSolver.solve(AHP_JUDGMENT_MATRIX);
+    const { matrix, results } = MatchingAlgorithm.buildDecisionMatrix(candidates, request);
+    const ewm = EntropyWeightMethod.solve(matrix);
+    const critic = CRITIC.solve(matrix);
+    const gt = GameTheoreticWeighting.solve([ahp.weights, ewm.weights, critic.weights]);
+    const w = gt.weights;
+
+    // Phase 3a: WSM 加权求和排序
+    const wsmScores = matrix.map(row => row.reduce((s, val, j) => s + val * w[j], 0));
+    const wsmRanking = wsmScores
+      .map((s, i) => ({ s, i }))
+      .sort((a, b) => b.s - a.s)
+      .map(x => x.i);
+
+    // Phase 3b: TOPSIS
+    const topsis = TOPSIS.solve(matrix, w);
+
+    // Phase 3c: VIKOR
+    const vikor = VIKOR.solve(matrix, w, v);
+
+    // Phase 4: Borda-Copeland 排名聚合
+    const aggregation = RankAggregation.solve(
+      [wsmRanking, topsis.ranking, vikor.ranking],
+      ['WSM', 'TOPSIS', 'VIKOR'],
+    );
+
+    // 按聚合排序输出结果
+    const rankedResults = aggregation.finalRanking
+      .map(idx => {
+        const r = results[idx];
+        // 用 WSM 加权分作为综合得分 (可解释性最好)
+        const score = Math.round(wsmScores[idx] * 10000) / 10000;
+        return {
+          ...r,
+          compositeScore: score,
+          compositeScorePercent: Math.round(score * 1000) / 10,
+          matchLevel: (
+            score >= 0.8 ? 'excellent' :
+            score >= 0.6 ? 'good' :
+            score >= 0.4 ? 'fair' : 'poor'
+          ) as MatchingResult['matchLevel'],
+          dimensions: r.dimensions.map((d, j) => ({
+            ...d,
+            weight: w[j],
+            weightedScore: Math.round(d.score * w[j] * 10000) / 10000,
+          })),
+        };
+      })
+      .slice(0, topK);
+
+    return {
+      results: rankedResults,
+      meta: {
+        hardConstraints: {
+          total: escorts.length,
+          passed: candidates.length,
+          filtered: escorts.length - candidates.length,
+        },
+        ahp,
+        ewm,
+        gameTheoretic: gt,
+        critic,
+        topsis,
+        vikor,
+        aggregation,
+        method: 'MDWMA v3 (AHP-EWM-CRITIC-GT × WSM/TOPSIS/VIKOR × Borda-Copeland)',
+      },
+    };
+  }
+
+  // ==================== Monte Carlo 灵敏度模拟 ====================
+
+  /** Monte Carlo 模拟结果 */
+  static monteCarloSensitivity(
+    escorts: EscortFeatureVector[],
+    request: MatchingRequest,
+    options: {
+      /** 模拟次数 (默认 1000) */
+      iterations?: number;
+      /** 权重扰动幅度 (标准差比例，默认 0.15 = ±15%) */
+      noiseLevel?: number;
+      /** 观察 Top-K */
+      topK?: number;
+    } = {},
+  ): {
+    /** Top-1 不变概率 */
+    top1Stability: number;
+    /** Top-K 排序完全不变概率 */
+    topKStability: number;
+    /** 平均 Kendall's Tau */
+    avgKendallTau: number;
+    /** 各候选出现在 Top-1 的频率 */
+    top1Frequency: Record<string, number>;
+    /** 各候选平均排名 */
+    avgRank: Record<string, number>;
+    /** 模拟参数 */
+    params: { iterations: number; noiseLevel: number; topK: number };
+  } {
+    const { iterations = 1000, noiseLevel = 0.15, topK = 5 } = options;
+
+    const baseWeights: number[] = [
+      AHP_WEIGHTS.SPECIALTY, AHP_WEIGHTS.PROXIMITY, AHP_WEIGHTS.TRUST,
+      AHP_WEIGHTS.QUALITY, AHP_WEIGHTS.EXPERIENCE, AHP_WEIGHTS.PRICE,
+      AHP_WEIGHTS.LOAD_BALANCE,
+    ];
+
+    // 基准排序
+    const baseResults = MatchingAlgorithm.rankEscorts(escorts, request, topK);
+    const baseRanking = baseResults.map(r => r.escortId);
+
+    // 决策矩阵 (一次性计算)
+    const { matrix } = MatchingAlgorithm.buildDecisionMatrix(escorts, request);
+    const n = escorts.length;
+
+    let top1Unchanged = 0;
+    let topKUnchanged = 0;
+    let tauSum = 0;
+    const top1Count: Record<string, number> = {};
+    const rankSum: Record<string, number> = {};
+    escorts.forEach(e => { top1Count[e.id] = 0; rankSum[e.id] = 0; });
+
+    // 简单伪随机 (确定性种子，保证可复现)
+    let seed = 42;
+    const random = () => {
+      seed = (seed * 1664525 + 1013904223) & 0x7fffffff;
+      return seed / 0x7fffffff;
+    };
+    // Box-Muller 正态分布
+    const randn = () => {
+      const u1 = random();
+      const u2 = random();
+      return Math.sqrt(-2 * Math.log(u1 + 1e-10)) * Math.cos(2 * Math.PI * u2);
+    };
+
+    for (let iter = 0; iter < iterations; iter++) {
+      // 对每个维度权重施加正态噪声
+      const perturbed = baseWeights.map(w =>
+        Math.max(0.001, w * (1 + noiseLevel * randn()))
+      );
+      // 归一化
+      const pSum = perturbed.reduce((a, b) => a + b, 0);
+      const normalized = perturbed.map(w => w / pSum);
+
+      // 用扰动权重计算排序
+      const scored = matrix.map((row, i) => ({
+        id: escorts[i].id,
+        score: row.reduce((s, v, j) => s + v * normalized[j], 0),
+      }));
+      scored.sort((a, b) => b.score - a.score);
+      const newRanking = scored.slice(0, topK).map(s => s.id);
+
+      // 统计
+      if (newRanking[0] === baseRanking[0]) top1Unchanged++;
+      if (JSON.stringify(newRanking) === JSON.stringify(baseRanking)) topKUnchanged++;
+
+      const tau = MatchingAlgorithm.kendallTau(baseRanking, newRanking);
+      tauSum += tau;
+
+      top1Count[newRanking[0]] = (top1Count[newRanking[0]] || 0) + 1;
+      scored.forEach((s, rank) => { rankSum[s.id] += rank + 1; });
+    }
+
+    // 平均排名
+    const avgRank: Record<string, number> = {};
+    escorts.forEach(e => { avgRank[e.id] = Math.round((rankSum[e.id] / iterations) * 100) / 100; });
+
+    // Top-1 频率
+    const top1Frequency: Record<string, number> = {};
+    Object.entries(top1Count).forEach(([id, count]) => {
+      top1Frequency[id] = Math.round((count / iterations) * 10000) / 10000;
+    });
+
+    return {
+      top1Stability: Math.round((top1Unchanged / iterations) * 10000) / 10000,
+      topKStability: Math.round((topKUnchanged / iterations) * 10000) / 10000,
+      avgKendallTau: Math.round((tauSum / iterations) * 10000) / 10000,
+      top1Frequency,
+      avgRank,
+      params: { iterations, noiseLevel, topK },
+    };
+  }
+
+  // ==================== MMR 公平性重排 ====================
+
+  /**
+   * MMR (Maximal Marginal Relevance) 公平性重排
+   *
+   * 动机: 纯匹配度排序会导致"马太效应"——少数高分陪诊师垄断所有订单，
+   * 新入驻或低曝光陪诊师永远无法获得机会，平台生态失衡。
+   *
+   * MMR 在匹配度与多样性之间取平衡:
+   *   MMR(d) = λ × Score(d) - (1-λ) × max_{d' ∈ Selected} Sim(d, d')
+   *
+   * 其中 Sim(d, d') 衡量两个陪诊师的"相似度":
+   *   - 科室重叠度 (Jaccard)
+   *   - 地理距离接近度
+   *   - 信任分接近度
+   *
+   * λ=1 退化为纯匹配度排序; λ=0 退化为最大多样性排序。
+   * 推荐 λ=0.7 (偏重匹配度，适度保障公平)。
+   *
+   * 学术价值: 将信息检索领域的 MMR (Carbonell & Goldstein, 1998)
+   * 迁移到 O2O 平台推荐场景，是跨学科创新点。
+   *
+   * @param results 已排序的匹配结果
+   * @param escorts 对应的陪诊师特征向量
+   * @param lambda 匹配度-多样性权衡系数 (默认 0.7)
+   * @param topK 最终返回数量
+   */
+  static mmrRerank(
+    results: MatchingResult[],
+    escorts: EscortFeatureVector[],
+    lambda: number = 0.7,
+    topK?: number,
+  ): MatchingResult[] {
+    const k = topK || results.length;
+    if (results.length <= 1) return results.slice(0, k);
+
+    // 构建 escortId → EscortFeatureVector 映射
+    const escortMap = new Map(escorts.map(e => [e.id, e]));
+
+    // 归一化分数到 [0, 1]
+    const maxScore = Math.max(...results.map(r => r.compositeScore));
+    const minScore = Math.min(...results.map(r => r.compositeScore));
+    const range = maxScore - minScore || 1;
+
+    const selected: MatchingResult[] = [];
+    const remaining = [...results];
+
+    while (selected.length < k && remaining.length > 0) {
+      let bestIdx = 0;
+      let bestMMR = -Infinity;
+
+      for (let i = 0; i < remaining.length; i++) {
+        const candidate = remaining[i];
+        const normScore = (candidate.compositeScore - minScore) / range;
+
+        // 计算与已选集合的最大相似度
+        let maxSim = 0;
+        for (const sel of selected) {
+          const sim = MatchingAlgorithm.escortSimilarity(
+            escortMap.get(candidate.escortId),
+            escortMap.get(sel.escortId),
+          );
+          maxSim = Math.max(maxSim, sim);
+        }
+
+        const mmr = lambda * normScore - (1 - lambda) * maxSim;
+        if (mmr > bestMMR) {
+          bestMMR = mmr;
+          bestIdx = i;
+        }
+      }
+
+      selected.push(remaining[bestIdx]);
+      remaining.splice(bestIdx, 1);
+    }
+
+    return selected;
+  }
+
+  /**
+   * 陪诊师相似度计算 (用于 MMR)
+   *
+   * Sim = 0.5 × Jaccard(科室) + 0.3 × 地理接近度 + 0.2 × 信任分接近度
+   */
+  private static escortSimilarity(
+    a: EscortFeatureVector | undefined,
+    b: EscortFeatureVector | undefined,
+  ): number {
+    if (!a || !b) return 0;
+
+    // 科室 Jaccard
+    const setA = new Set(a.specialties);
+    const setB = new Set(b.specialties);
+    const intersection = [...setA].filter(x => setB.has(x)).length;
+    const union = new Set([...setA, ...setB]).size;
+    const jaccard = union > 0 ? intersection / union : 0;
+
+    // 地理接近度 (距离越近越相似)
+    let geoSim = 0.5; // 默认中等
+    if (a.latitude && a.longitude && b.latitude && b.longitude) {
+      const dist = MatchingAlgorithm.haversineKm(a.latitude, a.longitude, b.latitude, b.longitude);
+      geoSim = Math.exp(-(dist * dist) / (2 * 3 * 3)); // σ=3km
+    }
+
+    // 信任分接近度
+    const trustSim = 1 - Math.abs(a.trustScore - b.trustScore) / 100;
+
+    return 0.5 * jaccard + 0.3 * geoSim + 0.2 * trustSim;
   }
 
   // ==================== 灵敏度分析 ====================
