@@ -14,6 +14,11 @@ import {
   VIKOR,
   RankAggregation,
   GameTheoreticWeighting,
+  ShapleyValue,
+  PROMETHEE,
+  GreyRelationalAnalysis,
+  ProspectTheory,
+  ParetoDominance,
   combinedWeights,
   AHP_WEIGHTS,
 } from './matching-algorithm';
@@ -700,16 +705,16 @@ function testHardConstraints() {
   console.log(`  通过: ${passed.length}, 过滤: ${filtered.length}`);
 }
 
-// ==================== 完整管线测试 (MDWMA v2) ====================
+// ==================== 完整管线测试 (MDWMA v4) ====================
 
 function testRankEscortsFull() {
-  console.log('\n=== MDWMA v2 完整管线 (GT-WSM/TOPSIS/VIKOR-Borda/Copeland) ===');
+  console.log('\n=== MDWMA v4 完整管线 (5路MCDM × Borda-Copeland × Shapley × PT × Pareto) ===');
 
   const { results, meta } = MatchingAlgorithm.rankEscortsFull(mockEscorts, request, 4);
 
   // 基本结构
   assert(results.length === 4, `返回 ${results.length} 个结果`);
-  assert(meta.method.includes('MDWMA v3'), `方法: ${meta.method}`);
+  assert(meta.method.includes('MDWMA v4'), `方法: ${meta.method}`);
 
   // 硬约束
   assert(meta.hardConstraints.total === 4, `总候选: ${meta.hardConstraints.total}`);
@@ -728,14 +733,48 @@ function testRankEscortsFull() {
   console.log(`  VIKOR Q: [${meta.vikor.Q.join(', ')}]`);
   console.log(`  VIKOR 妥协解有效: ${meta.vikor.compromiseValid}`);
 
-  // 排名聚合
+  // PROMETHEE II
+  assert(meta.promethee.netFlows.length === 4, 'PROMETHEE 4 个净流');
+  assert(meta.promethee.ranking.length === 4, 'PROMETHEE 排序 4 个');
+  console.log(`  PROMETHEE 净流: [${meta.promethee.netFlows.join(', ')}]`);
+  console.log(`  PROMETHEE 排序: [${meta.promethee.ranking.join(', ')}]`);
+
+  // GRA
+  assert(meta.gra.relationalGrades.length === 4, 'GRA 4 个关联度');
+  assert(meta.gra.ranking.length === 4, 'GRA 排序 4 个');
+  console.log(`  GRA 关联度: [${meta.gra.relationalGrades.join(', ')}]`);
+  console.log(`  GRA 排序:   [${meta.gra.ranking.join(', ')}]`);
+
+  // Shapley
+  assert(meta.shapley.shapleyValues.length === 7, 'Shapley 7 维贡献');
+  const shapleySum = meta.shapley.contributionRatio.reduce((a, b) => a + b, 0);
+  assertApprox(shapleySum, 1.0, 0.01, `Shapley 贡献占比之和 = ${shapleySum.toFixed(4)}`);
+  console.log(`  Shapley 值: [${meta.shapley.shapleyValues.join(', ')}]`);
+  console.log(`  贡献占比:   [${meta.shapley.contributionRatio.join(', ')}]`);
+
+  // 前景理论
+  assert(meta.prospectTheory.prospectValues.length === 4, 'PT 4 个前景价值');
+  assert(meta.prospectTheory.ranking[0] === meta.aggregation.finalRanking[0], 'PT Top-1 与聚合一致');
+  console.log(`  前景价值:   [${meta.prospectTheory.prospectValues.join(', ')}]`);
+  console.log(`  PT 排序:    [${meta.prospectTheory.ranking.join(', ')}]`);
+
+  // Pareto
+  assert(meta.pareto.top1IsParetoOptimal === true, 'Top-1 是 Pareto 最优');
+  assert(meta.pareto.dominatorsOfTop1.length === 0, 'Top-1 无支配者');
+  console.log(`  Pareto 前沿: [${meta.pareto.paretoFront.join(', ')}]`);
+  console.log(`  Top-1 Pareto 最优: ${meta.pareto.top1IsParetoOptimal}`);
+
+  // 排名聚合 (5路)
   assert(meta.aggregation.finalRanking.length === 4, '聚合排序 4 个');
-  console.log(`  WSM 排序:    [${meta.aggregation.inputRankings[0].join(', ')}]`);
-  console.log(`  TOPSIS 排序: [${meta.aggregation.inputRankings[1].join(', ')}]`);
-  console.log(`  VIKOR 排序:  [${meta.aggregation.inputRankings[2].join(', ')}]`);
-  console.log(`  聚合排序:    [${meta.aggregation.finalRanking.join(', ')}]`);
-  console.log(`  Borda 分:    [${meta.aggregation.bordaScores.join(', ')}]`);
-  console.log(`  Copeland 分: [${meta.aggregation.copelandScores.join(', ')}]`);
+  assert(meta.aggregation.methodNames.length === 5, '5 路聚合方法');
+  console.log(`  WSM 排序:       [${meta.aggregation.inputRankings[0].join(', ')}]`);
+  console.log(`  TOPSIS 排序:    [${meta.aggregation.inputRankings[1].join(', ')}]`);
+  console.log(`  VIKOR 排序:     [${meta.aggregation.inputRankings[2].join(', ')}]`);
+  console.log(`  PROMETHEE 排序: [${meta.aggregation.inputRankings[3].join(', ')}]`);
+  console.log(`  GRA 排序:       [${meta.aggregation.inputRankings[4].join(', ')}]`);
+  console.log(`  聚合排序:       [${meta.aggregation.finalRanking.join(', ')}]`);
+  console.log(`  Borda 分:       [${meta.aggregation.bordaScores.join(', ')}]`);
+  console.log(`  Copeland 分:    [${meta.aggregation.copelandScores.join(', ')}]`);
 
   // 张护士应排第一 (心内科精确匹配)
   assert(results[0].escortId === 'escort-1', `Top-1 是 ${results[0].name} (期望张护士)`);
@@ -748,7 +787,7 @@ function testRankEscortsFull() {
     );
   }
 
-  console.log('\n  MDWMA v2 排序结果:');
+  console.log('\n  MDWMA v4 排序结果:');
   results.forEach((r, i) => {
     console.log(`  #${i + 1} ${r.name}: ${r.compositeScorePercent}% [${r.matchLevel}] — ${r.summary}`);
   });
@@ -864,11 +903,246 @@ function testMMRRerank() {
   console.log(`  λ=0 排序: [${maxDiversity.map(r => r.name).join(', ')}]`);
 }
 
+// ==================== Shapley Value 维度贡献测试 ====================
+
+function testShapleyValue() {
+  console.log('\n=== Shapley Value 维度贡献分解 (合作博弈论) ===');
+
+  const { matrix } = MatchingAlgorithm.buildDecisionMatrix(mockEscorts, request);
+  const weights = [0.3158, 0.197, 0.197, 0.1208, 0.0754, 0.0471, 0.0471];
+
+  // 对 Top-1 候选 (张护士, row 0) 计算 Shapley 值
+  const result = ShapleyValue.solve(matrix, weights, 0);
+
+  // Shapley 值之和 = 大联盟价值 (效率性公理)
+  const phiSum = result.shapleyValues.reduce((a, b) => a + b, 0);
+  assertApprox(phiSum, result.grandCoalitionValue, 0.001, `Σφᵢ = v(N) = ${phiSum.toFixed(4)}`);
+
+  // 所有 Shapley 值非负 (得分和权重都非负)
+  assert(result.shapleyValues.every(v => v >= 0), '所有 Shapley 值 ≥ 0');
+
+  // 贡献占比之和 = 1
+  const ratioSum = result.contributionRatio.reduce((a, b) => a + b, 0);
+  assertApprox(ratioSum, 1.0, 0.01, `贡献占比之和 = ${ratioSum.toFixed(4)}`);
+
+  // 科室匹配贡献应最大 (权重最高 × 得分=1)
+  assert(result.shapleyValues[0] > result.shapleyValues[1], 'φ(科室) > φ(邻近)');
+
+  // 7 个维度
+  assert(result.shapleyValues.length === 7, '7 维 Shapley 值');
+  assert(result.dimensions.length === 7, '7 个维度标签');
+
+  console.log(`  大联盟价值 v(N) = ${result.grandCoalitionValue}`);
+  console.log(`  Shapley 值: [${result.shapleyValues.join(', ')}]`);
+  console.log(`  贡献占比:   [${result.contributionRatio.join(', ')}]`);
+  console.log(`  维度:       [${result.dimensions.join(', ')}]`);
+
+  // 群体 Shapley 值
+  const groupResult = ShapleyValue.solveGroup(matrix, weights);
+  assert(groupResult.shapleyValues.length === 7, '群体 Shapley 7 维');
+  const groupSum = groupResult.contributionRatio.reduce((a, b) => a + b, 0);
+  assertApprox(groupSum, 1.0, 0.01, `群体贡献占比之和 = ${groupSum.toFixed(4)}`);
+  console.log(`  群体 Shapley: [${groupResult.shapleyValues.join(', ')}]`);
+}
+
+// ==================== PROMETHEE II 测试 ====================
+
+function testPROMETHEE() {
+  console.log('\n=== PROMETHEE II 超越关系排序 ===');
+
+  const { matrix } = MatchingAlgorithm.buildDecisionMatrix(mockEscorts, request);
+  const weights = [0.3158, 0.197, 0.197, 0.1208, 0.0754, 0.0471, 0.0471];
+
+  const result = PROMETHEE.solve(matrix, weights);
+
+  // 4 个候选
+  assert(result.netFlows.length === 4, '4 个净超越流');
+  assert(result.positiveFlows.length === 4, '4 个离开流');
+  assert(result.negativeFlows.length === 4, '4 个进入流');
+  assert(result.ranking.length === 4, '排序 4 个');
+
+  // 净流 = 离开流 - 进入流
+  for (let i = 0; i < 4; i++) {
+    assertApprox(result.netFlows[i], result.positiveFlows[i] - result.negativeFlows[i], 0.001,
+      `Φ[${i}] = Φ⁺[${i}] - Φ⁻[${i}]`);
+  }
+
+  // Top-1 应是张护士 (索引 0)
+  assert(result.ranking[0] === 0, `PROMETHEE Top-1 是候选 0 (张护士)`);
+
+  // Top-1 净流最大
+  assert(result.netFlows[0] > result.netFlows[1], 'Φ(张) > Φ(王)');
+
+  // σ 参数非负
+  assert(result.sigmas.every(s => s > 0), '所有 σ > 0');
+
+  console.log(`  净超越流: [${result.netFlows.join(', ')}]`);
+  console.log(`  离开流:   [${result.positiveFlows.join(', ')}]`);
+  console.log(`  进入流:   [${result.negativeFlows.join(', ')}]`);
+  console.log(`  排序:     [${result.ranking.join(', ')}]`);
+  console.log(`  σ 参数:   [${result.sigmas.join(', ')}]`);
+}
+
+// ==================== 灰色关联分析测试 ====================
+
+function testGRA() {
+  console.log('\n=== 灰色关联分析 GRA (邓聚龙, ρ=0.5) ===');
+
+  const { matrix } = MatchingAlgorithm.buildDecisionMatrix(mockEscorts, request);
+  const weights = [0.3158, 0.197, 0.197, 0.1208, 0.0754, 0.0471, 0.0471];
+
+  const result = GreyRelationalAnalysis.solve(matrix, weights);
+
+  // 4 个候选
+  assert(result.relationalGrades.length === 4, '4 个关联度');
+  assert(result.coefficients.length === 4, '4 行关联系数');
+  assert(result.coefficients[0].length === 7, '7 列关联系数');
+  assert(result.ranking.length === 4, '排序 4 个');
+
+  // 关联系数在 (0, 1] 范围
+  for (let i = 0; i < 4; i++) {
+    for (let j = 0; j < 7; j++) {
+      assert(result.coefficients[i][j] > 0 && result.coefficients[i][j] <= 1,
+        `ξ[${i}][${j}] = ${result.coefficients[i][j]} ∈ (0,1]`);
+    }
+  }
+
+  // 关联度在 (0, 1] 范围
+  assert(result.relationalGrades.every(g => g > 0 && g <= 1), '关联度 ∈ (0,1]');
+
+  // Top-1 应是张护士
+  assert(result.ranking[0] === 0, 'GRA Top-1 是候选 0 (张护士)');
+
+  // 张护士关联度最高 (所有维度接近理想值)
+  assert(result.relationalGrades[0] > result.relationalGrades[1], 'r(张) > r(王)');
+
+  // 参考序列 = 各维度最大值
+  assert(result.referenceSequence.length === 7, '参考序列 7 维');
+  assert(result.referenceSequence[0] === 1, '参考序列[0] = 1 (科室匹配最大值)');
+
+  // ρ = 0.5
+  assert(result.rho === 0.5, `ρ = ${result.rho}`);
+
+  // Δmin ≥ 0, Δmax > 0
+  assert(result.deltaMin >= 0, `Δmin = ${result.deltaMin} ≥ 0`);
+  assert(result.deltaMax > 0, `Δmax = ${result.deltaMax} > 0`);
+
+  console.log(`  关联度:   [${result.relationalGrades.join(', ')}]`);
+  console.log(`  排序:     [${result.ranking.join(', ')}]`);
+  console.log(`  参考序列: [${result.referenceSequence.join(', ')}]`);
+  console.log(`  Δmin=${result.deltaMin}, Δmax=${result.deltaMax}, ρ=${result.rho}`);
+}
+
+// ==================== 前景理论测试 ====================
+
+function testProspectTheory() {
+  console.log('\n=== 前景理论价值函数 (Kahneman-Tversky) ===');
+
+  const { matrix } = MatchingAlgorithm.buildDecisionMatrix(mockEscorts, request);
+  const weights = [0.3158, 0.197, 0.197, 0.1208, 0.0754, 0.0471, 0.0471];
+
+  const result = ProspectTheory.solve(matrix, weights);
+
+  // 4 个候选
+  assert(result.prospectValues.length === 4, '4 个前景价值');
+  assert(result.valueMatrix.length === 4, '4 行价值矩阵');
+  assert(result.valueMatrix[0].length === 7, '7 列价值矩阵');
+  assert(result.ranking.length === 4, '排序 4 个');
+
+  // 参数验证
+  assert(result.params.alpha === 0.88, `α = ${result.params.alpha}`);
+  assert(result.params.beta === 0.88, `β = ${result.params.beta}`);
+  assert(result.params.lambda === 2.25, `λ = ${result.params.lambda}`);
+
+  // 参考点 = 各维度均值
+  assert(result.referencePoints.length === 7, '7 个参考点');
+
+  // 价值函数性质验证
+  // v(0) = 0
+  assertApprox(ProspectTheory.valueFunction(0), 0, 0.001, 'v(0) = 0');
+  // 损失厌恶: |v(-x)| > v(x) for x > 0
+  const gain = ProspectTheory.valueFunction(0.3);
+  const loss = ProspectTheory.valueFunction(-0.3);
+  assert(Math.abs(loss) > gain, `|v(-0.3)| = ${Math.abs(loss).toFixed(4)} > v(0.3) = ${gain.toFixed(4)} (损失厌恶)`);
+  // 敏感度递减: v(0.1) - v(0) > v(0.9) - v(0.8)
+  const marginal1 = ProspectTheory.valueFunction(0.1) - ProspectTheory.valueFunction(0);
+  const marginal2 = ProspectTheory.valueFunction(0.9) - ProspectTheory.valueFunction(0.8);
+  assert(marginal1 > marginal2, '收益域敏感度递减');
+
+  // Top-1 应是张护士 (远超均值 → 全维度正收益)
+  assert(result.ranking[0] === 0, 'PT Top-1 是候选 0 (张护士)');
+
+  // 张护士前景价值应为正 (全面超越参考点)
+  assert(result.prospectValues[0] > 0, `张护士前景价值 = ${result.prospectValues[0]} > 0`);
+
+  console.log(`  前景价值: [${result.prospectValues.join(', ')}]`);
+  console.log(`  排序:     [${result.ranking.join(', ')}]`);
+  console.log(`  参考点:   [${result.referencePoints.join(', ')}]`);
+  console.log(`  参数: α=${result.params.alpha}, β=${result.params.beta}, λ=${result.params.lambda}`);
+  console.log(`  损失厌恶验证: |v(-0.3)|=${Math.abs(loss).toFixed(4)} > v(0.3)=${gain.toFixed(4)} ✓`);
+}
+
+// ==================== Pareto 支配测试 ====================
+
+function testParetoDominance() {
+  console.log('\n=== Pareto 支配与最优性验证 ===');
+
+  const { matrix } = MatchingAlgorithm.buildDecisionMatrix(mockEscorts, request);
+
+  const result = ParetoDominance.solve(matrix, 0);
+
+  // 基本结构
+  assert(result.isParetoOptimal.length === 4, '4 个 Pareto 判定');
+  assert(result.dominanceMatrix.length === 4, '4×4 支配矩阵');
+  assert(result.dominanceMatrix[0].length === 4, '支配矩阵列数');
+
+  // 对角线为 false (不自我支配)
+  for (let i = 0; i < 4; i++) {
+    assert(result.dominanceMatrix[i][i] === false, `dominance[${i}][${i}] = false`);
+  }
+
+  // 张护士 (row 0) 应是 Pareto 最优 (科室=1, 邻近≈1, 信任=0.92 全面领先)
+  assert(result.top1IsParetoOptimal === true, '张护士是 Pareto 最优');
+  assert(result.dominatorsOfTop1.length === 0, '无候选支配张护士');
+
+  // Pareto 前沿非空
+  assert(result.paretoFront.length >= 1, `Pareto 前沿 ≥ 1 个解`);
+  assert(result.paretoFront.includes(0), '张护士在 Pareto 前沿中');
+
+  // 支配关系反对称: 若 i 支配 j, 则 j 不支配 i
+  for (let i = 0; i < 4; i++) {
+    for (let j = 0; j < 4; j++) {
+      if (result.dominanceMatrix[i][j]) {
+        assert(result.dominanceMatrix[j][i] === false, `dom[${i}][${j}]=T → dom[${j}][${i}]=F`);
+      }
+    }
+  }
+
+  console.log(`  Pareto 前沿: [${result.paretoFront.join(', ')}]`);
+  console.log(`  Pareto 最优: [${result.isParetoOptimal.join(', ')}]`);
+  console.log(`  Top-1 Pareto 最优: ${result.top1IsParetoOptimal}`);
+  console.log(`  支配 Top-1 的候选: [${result.dominatorsOfTop1.join(', ')}]`);
+
+  // 构造一个被支配的案例验证
+  const dominatedMatrix = [
+    [0.9, 0.8, 0.9, 0.9, 0.9, 0.9, 0.9], // A: 强势但邻近度一般
+    [0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5], // B: 被 A 支配
+    [0.8, 0.95, 0.7, 0.7, 0.6, 0.8, 0.4], // C: 邻近度超越 A, 不被支配
+  ];
+  const domResult = ParetoDominance.solve(dominatedMatrix, 1);
+  assert(domResult.top1IsParetoOptimal === false, 'B 不是 Pareto 最优');
+  assert(domResult.dominatorsOfTop1.includes(0), 'A 支配 B');
+  assert(domResult.paretoFront.includes(0), 'A 在前沿');
+  assert(domResult.paretoFront.includes(2), 'C 在前沿 (邻近度超越 A)');
+  assert(!domResult.paretoFront.includes(1), 'B 不在前沿');
+  console.log(`  验证案例: B 被 A 支配 ✓, Pareto 前沿 = [A, C] ✓`);
+}
+
 // ==================== 运行所有测试 ====================
 
 console.log('╔══════════════════════════════════════════════════════════╗');
-console.log('║  MDWMA v3 多维加权陪护匹配算法 - 完整单元测试           ║');
-console.log('║  AHP-EWM-CRITIC-GT × WSM/TOPSIS/VIKOR × Borda-Copeland ║');
+console.log('║  MDWMA v4 多维加权陪护匹配算法 - 完整单元测试           ║');
+console.log('║  5路MCDM × Borda-Copeland × Shapley × PT × Pareto      ║');
 console.log('╚══════════════════════════════════════════════════════════╝');
 
 try {
@@ -907,6 +1181,13 @@ try {
   testCRITIC();
   testMonteCarloSensitivity();
   testMMRRerank();
+
+  // v4: Shapley + PROMETHEE + GRA + 前景理论 + Pareto
+  testShapleyValue();
+  testPROMETHEE();
+  testGRA();
+  testProspectTheory();
+  testParetoDominance();
 
   // 工具函数
   testHaversine();

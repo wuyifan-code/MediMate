@@ -821,6 +821,536 @@ export class RankAggregation {
   }
 }
 
+// ==================== Shapley Value 维度贡献分解 ====================
+
+/**
+ * Shapley Value (合作博弈论)
+ *
+ * 将综合匹配度视为 7 个维度"玩家"的合作博弈收益，
+ * 计算每个维度的 Shapley 值——即该维度对所有可能联盟的边际贡献期望。
+ *
+ * 公式: φᵢ = Σ_{S⊆N\{i}} [|S|!(n-|S|-1)! / n!] × [v(S∪{i}) - v(S)]
+ *
+ * 对于加权求和模型 v(S) = Σ_{j∈S} wⱼ×x̄ⱼ (联盟价值 = 联盟内维度的加权均值)，
+ * Shapley 值有解析解: φᵢ = wᵢ × x̄ᵢ (即权重×该维度平均得分)
+ *
+ * 但为了一般性 (支持非线性价值函数)，此处实现精确枚举算法 (n=7, 2⁷=128 联盟)。
+ */
+export interface ShapleyResult {
+  /** 各维度 Shapley 值 (贡献度) */
+  shapleyValues: number[];
+  /** 各维度贡献占比 (归一化) */
+  contributionRatio: number[];
+  /** 维度标签 */
+  dimensions: string[];
+  /** 总价值 v(N) */
+  grandCoalitionValue: number;
+}
+
+export class ShapleyValue {
+  private static readonly DIM_LABELS = [
+    '科室匹配', '地理邻近', '信任评分', '服务质量', '服务经验', '价格适配', '负载均衡',
+  ];
+
+  /**
+   * 精确 Shapley 值计算 (枚举所有 2ⁿ 联盟)
+   *
+   * @param matrix 决策矩阵 (n×7)
+   * @param weights 组合权重向量
+   * @param targetRow 目标候选行索引 (计算该候选的维度贡献分解)
+   */
+  static solve(matrix: number[][], weights: number[], targetRow: number = 0): ShapleyResult {
+    const n = weights.length; // 7 个维度
+    const x = matrix[targetRow]; // 目标候选的各维度得分
+
+    // 价值函数: v(S) = Σ_{j∈S} wⱼ × xⱼ (加权求和)
+    const valueFunction = (coalition: boolean[]): number => {
+      let v = 0;
+      for (let j = 0; j < n; j++) {
+        if (coalition[j]) v += weights[j] * x[j];
+      }
+      return v;
+    };
+
+    // 预计算阶乘
+    const factorial = (k: number): number => {
+      let f = 1;
+      for (let i = 2; i <= k; i++) f *= i;
+      return f;
+    };
+
+    const shapleyValues = new Array(n).fill(0);
+    const totalCoalitions = 1 << n; // 2ⁿ
+
+    for (let i = 0; i < n; i++) {
+      let phi = 0;
+      for (let mask = 0; mask < totalCoalitions; mask++) {
+        // 只考虑不包含 i 的联盟 S
+        if (mask & (1 << i)) continue;
+
+        const coalition: boolean[] = new Array(n).fill(false);
+        let s = 0; // |S|
+        for (let j = 0; j < n; j++) {
+          if (mask & (1 << j)) {
+            coalition[j] = true;
+            s++;
+          }
+        }
+
+        // 边际贡献: v(S∪{i}) - v(S)
+        const withI = [...coalition];
+        withI[i] = true;
+        const marginal = valueFunction(withI) - valueFunction(coalition);
+
+        // Shapley 权重: |S|!(n-|S|-1)! / n!
+        const weight = (factorial(s) * factorial(n - s - 1)) / factorial(n);
+        phi += weight * marginal;
+      }
+      shapleyValues[i] = Math.round(phi * 10000) / 10000;
+    }
+
+    const grandCoalitionValue = valueFunction(new Array(n).fill(true));
+    const absSum = shapleyValues.reduce((a, b) => a + Math.abs(b), 0);
+    const contributionRatio = shapleyValues.map(v =>
+      absSum > 0 ? Math.round((v / absSum) * 10000) / 10000 : 0,
+    );
+
+    return {
+      shapleyValues,
+      contributionRatio,
+      dimensions: ShapleyValue.DIM_LABELS,
+      grandCoalitionValue: Math.round(grandCoalitionValue * 10000) / 10000,
+    };
+  }
+
+  /**
+   * 群体 Shapley 值: 对所有候选取平均，反映维度在群体层面的区分贡献
+   */
+  static solveGroup(matrix: number[][], weights: number[]): ShapleyResult {
+    const n = matrix.length;
+    const dimCount = weights.length;
+    const accumulated = new Array(dimCount).fill(0);
+
+    for (let row = 0; row < n; row++) {
+      const result = ShapleyValue.solve(matrix, weights, row);
+      for (let j = 0; j < dimCount; j++) {
+        accumulated[j] += result.shapleyValues[j];
+      }
+    }
+
+    const shapleyValues = accumulated.map(v => Math.round((v / n) * 10000) / 10000);
+    const absSum = shapleyValues.reduce((a, b) => a + Math.abs(b), 0);
+    const contributionRatio = shapleyValues.map(v =>
+      absSum > 0 ? Math.round((v / absSum) * 10000) / 10000 : 0,
+    );
+
+    // 群体大联盟价值 = 所有候选加权分的均值
+    const grandValue = matrix.reduce((sum, row) => {
+      return sum + row.reduce((s, val, j) => s + val * weights[j], 0);
+    }, 0) / n;
+
+    return {
+      shapleyValues,
+      contributionRatio,
+      dimensions: ShapleyValue.DIM_LABELS,
+      grandCoalitionValue: Math.round(grandValue * 10000) / 10000,
+    };
+  }
+}
+
+// ==================== PROMETHEE II 超越关系排序 ====================
+
+/**
+ * PROMETHEE II (Preference Ranking Organization METHod for Enrichment Evaluations)
+ *
+ * 基于超越关系 (outranking) 的多准则决策方法，与 TOPSIS/VIKOR 的距离逻辑完全不同。
+ * 使用偏好函数量化"a 在准则 j 上优于 b 的程度"，构建超越流 (outranking flow)。
+ *
+ * 偏好函数类型: 高斯型 (Type V)
+ *   Pⱼ(a,b) = 1 - exp(-dⱼ² / (2σⱼ²))  当 dⱼ > 0, 否则 0
+ *   其中 dⱼ = fⱼ(a) - fⱼ(b), σⱼ 由数据标准差确定
+ *
+ * 净超越流: Φ(a) = Φ⁺(a) - Φ⁻(a)
+ *   Φ⁺(a) = 1/(n-1) Σ_b π(a,b)  (离开流)
+ *   Φ⁻(a) = 1/(n-1) Σ_b π(b,a)  (进入流)
+ *   π(a,b) = Σⱼ wⱼ × Pⱼ(a,b)   (多准则偏好指数)
+ */
+export interface PROMETHEEResult {
+  /** 各候选的净超越流 Φ */
+  netFlows: number[];
+  /** 离开流 Φ⁺ */
+  positiveFlows: number[];
+  /** 进入流 Φ⁻ */
+  negativeFlows: number[];
+  /** 排序 (索引数组, 从优到劣) */
+  ranking: number[];
+  /** 各准则的 σ 参数 */
+  sigmas: number[];
+}
+
+export class PROMETHEE {
+  /**
+   * PROMETHEE II 完整排序
+   *
+   * @param matrix 决策矩阵 (n×m), 已归一化到 [0,1]
+   * @param weights 准则权重向量
+   */
+  static solve(matrix: number[][], weights: number[]): PROMETHEEResult {
+    const n = matrix.length;
+    const m = weights.length;
+
+    if (n <= 1) {
+      return {
+        netFlows: [0],
+        positiveFlows: [0],
+        negativeFlows: [0],
+        ranking: [0],
+        sigmas: new Array(m).fill(1),
+      };
+    }
+
+    // 计算各准则的标准差作为 σ 参数
+    const sigmas: number[] = [];
+    for (let j = 0; j < m; j++) {
+      const col = matrix.map(row => row[j]);
+      const mean = col.reduce((a, b) => a + b, 0) / n;
+      const variance = col.reduce((s, v) => s + (v - mean) ** 2, 0) / n;
+      sigmas.push(Math.sqrt(variance) || 0.01); // 避免除零
+    }
+
+    // 高斯偏好函数: Pⱼ(a,b) = 1 - exp(-d²/(2σ²)) if d > 0, else 0
+    const preference = (a: number[], b: number[], j: number): number => {
+      const d = a[j] - b[j];
+      if (d <= 0) return 0;
+      return 1 - Math.exp(-(d * d) / (2 * sigmas[j] * sigmas[j]));
+    };
+
+    // 多准则偏好指数 π(a,b) = Σ wⱼ × Pⱼ(a,b)
+    const preferenceIndex = (a: number[], b: number[]): number => {
+      let pi = 0;
+      for (let j = 0; j < m; j++) {
+        pi += weights[j] * preference(a, b, j);
+      }
+      return pi;
+    };
+
+    // 计算离开流和进入流
+    const positiveFlows = new Array(n).fill(0);
+    const negativeFlows = new Array(n).fill(0);
+
+    for (let a = 0; a < n; a++) {
+      for (let b = 0; b < n; b++) {
+        if (a === b) continue;
+        const pi = preferenceIndex(matrix[a], matrix[b]);
+        positiveFlows[a] += pi;
+        negativeFlows[b] += pi;
+      }
+    }
+
+    // 归一化: 除以 (n-1)
+    for (let i = 0; i < n; i++) {
+      positiveFlows[i] = Math.round((positiveFlows[i] / (n - 1)) * 10000) / 10000;
+      negativeFlows[i] = Math.round((negativeFlows[i] / (n - 1)) * 10000) / 10000;
+    }
+
+    // 净超越流
+    const netFlows = positiveFlows.map((pf, i) =>
+      Math.round((pf - negativeFlows[i]) * 10000) / 10000,
+    );
+
+    // 排序: 净流越大越优
+    const ranking = netFlows
+      .map((f, i) => ({ f, i }))
+      .sort((a, b) => b.f - a.f)
+      .map(x => x.i);
+
+    return { netFlows, positiveFlows, negativeFlows, ranking, sigmas: sigmas.map(s => Math.round(s * 10000) / 10000) };
+  }
+}
+
+// ==================== 灰色关联分析 (GRA) ====================
+
+/**
+ * Grey Relational Analysis (灰色关联分析, 邓聚龙 1982)
+ *
+ * 适用于"贫信息"系统——样本量小、信息不完全的场景。
+ * 对于新上线的 O2O 平台，候选陪诊师数量有限 (n=3~10)，
+ * 传统统计方法失效，GRA 通过几何曲线相似度度量关联程度。
+ *
+ * 步骤:
+ *   1. 确定参考序列 x₀ (各维度理想最优值)
+ *   2. 计算灰色关联系数: ξᵢ(k) = (Δmin + ρΔmax) / (Δᵢ(k) + ρΔmax)
+ *   3. 计算加权关联度: rᵢ = Σₖ wₖ × ξᵢ(k)
+ *
+ * ρ = 0.5 (分辨系数, 邓聚龙推荐值)
+ */
+export interface GRAResult {
+  /** 各候选的灰色关联度 */
+  relationalGrades: number[];
+  /** 关联系数矩阵 (n×m) */
+  coefficients: number[][];
+  /** 排序 (索引数组) */
+  ranking: number[];
+  /** 参考序列 (理想最优) */
+  referenceSequence: number[];
+  /** 分辨系数 ρ */
+  rho: number;
+  /** Δmin 和 Δmax */
+  deltaMin: number;
+  deltaMax: number;
+}
+
+export class GreyRelationalAnalysis {
+  /**
+   * GRA 排序
+   *
+   * @param matrix 决策矩阵 (n×m), 值域 [0,1]
+   * @param weights 准则权重
+   * @param rho 分辨系数, 默认 0.5
+   */
+  static solve(matrix: number[][], weights: number[], rho: number = 0.5): GRAResult {
+    const n = matrix.length;
+    const m = weights.length;
+
+    // 参考序列: 各维度最大值 (效益型准则)
+    const referenceSequence: number[] = [];
+    for (let j = 0; j < m; j++) {
+      referenceSequence.push(Math.max(...matrix.map(row => row[j])));
+    }
+
+    // 计算差值矩阵 Δᵢ(k) = |x₀(k) - xᵢ(k)|
+    const deltas: number[][] = matrix.map(row =>
+      row.map((val, j) => Math.abs(referenceSequence[j] - val)),
+    );
+
+    // 全局 Δmin 和 Δmax
+    const allDeltas = deltas.flat();
+    const deltaMin = Math.min(...allDeltas);
+    const deltaMax = Math.max(...allDeltas);
+
+    // 灰色关联系数
+    const coefficients: number[][] = deltas.map(row =>
+      row.map(d => {
+        const numerator = deltaMin + rho * deltaMax;
+        const denominator = d + rho * deltaMax;
+        return denominator > 0 ? Math.round((numerator / denominator) * 10000) / 10000 : 1;
+      }),
+    );
+
+    // 加权关联度
+    const relationalGrades = coefficients.map(row => {
+      const grade = row.reduce((s, xi, j) => s + weights[j] * xi, 0);
+      return Math.round(grade * 10000) / 10000;
+    });
+
+    // 排序: 关联度越大越优
+    const ranking = relationalGrades
+      .map((g, i) => ({ g, i }))
+      .sort((a, b) => b.g - a.g)
+      .map(x => x.i);
+
+    return {
+      relationalGrades,
+      coefficients,
+      ranking,
+      referenceSequence: referenceSequence.map(v => Math.round(v * 10000) / 10000),
+      rho,
+      deltaMin: Math.round(deltaMin * 10000) / 10000,
+      deltaMax: Math.round(deltaMax * 10000) / 10000,
+    };
+  }
+}
+
+// ==================== 前景理论价值函数 ====================
+
+/**
+ * Prospect Theory (Kahneman & Tversky, 1979; Tversky & Kahneman, 1992)
+ *
+ * 行为经济学核心: 决策者对损失的敏感度大于等量收益 (损失厌恶)。
+ * 在陪诊匹配中，患者对"选到差陪诊师"的恐惧 > "选到好陪诊师"的期待。
+ *
+ * 价值函数:
+ *   v(x) = x^α           当 x ≥ 0 (收益域, 风险规避)
+ *   v(x) = -λ(-x)^β      当 x < 0  (损失域, 风险寻求)
+ *
+ * 参数 (Kahneman-Tversky 实验估计值):
+ *   α = β = 0.88 (敏感度递减)
+ *   λ = 2.25 (损失厌恶系数)
+ *
+ * 参考点: 各维度的群体均值 (患者心理预期)
+ * 应用: 将原始得分转换为心理价值，重新加权排序
+ */
+export interface ProspectTheoryResult {
+  /** 各候选的前景价值 (加权) */
+  prospectValues: number[];
+  /** 各候选各维度的价值函数值 (n×m) */
+  valueMatrix: number[][];
+  /** 排序 (索引数组) */
+  ranking: number[];
+  /** 参考点 (各维度均值) */
+  referencePoints: number[];
+  /** 参数 */
+  params: { alpha: number; beta: number; lambda: number };
+}
+
+export class ProspectTheory {
+  static readonly ALPHA = 0.88;  // 收益域敏感度指数
+  static readonly BETA = 0.88;   // 损失域敏感度指数
+  static readonly LAMBDA = 2.25; // 损失厌恶系数
+
+  /**
+   * 前景理论价值函数
+   * @param x 相对于参考点的偏差
+   */
+  static valueFunction(x: number): number {
+    const { ALPHA, BETA, LAMBDA } = ProspectTheory;
+    if (x >= 0) {
+      return Math.pow(x, ALPHA);
+    } else {
+      return -LAMBDA * Math.pow(-x, BETA);
+    }
+  }
+
+  /**
+   * 基于前景理论的排序
+   *
+   * @param matrix 决策矩阵 (n×m), 值域 [0,1]
+   * @param weights 准则权重
+   * @param referencePoints 可选参考点, 默认为各维度均值
+   */
+  static solve(
+    matrix: number[][],
+    weights: number[],
+    referencePoints?: number[],
+  ): ProspectTheoryResult {
+    const n = matrix.length;
+    const m = weights.length;
+
+    // 参考点: 各维度均值 (患者心理预期 = 市场平均水平)
+    const ref = referencePoints || [];
+    for (let j = 0; j < m; j++) {
+      if (ref[j] === undefined) {
+        ref[j] = matrix.reduce((s, row) => s + row[j], 0) / n;
+      }
+    }
+
+    // 计算价值矩阵
+    const valueMatrix: number[][] = matrix.map(row =>
+      row.map((val, j) => {
+        const deviation = val - ref[j]; // 相对参考点的偏差
+        return Math.round(ProspectTheory.valueFunction(deviation) * 10000) / 10000;
+      }),
+    );
+
+    // 加权前景价值
+    const prospectValues = valueMatrix.map(row => {
+      const pv = row.reduce((s, v, j) => s + weights[j] * v, 0);
+      return Math.round(pv * 10000) / 10000;
+    });
+
+    // 排序: 前景价值越大越优
+    const ranking = prospectValues
+      .map((v, i) => ({ v, i }))
+      .sort((a, b) => b.v - a.v)
+      .map(x => x.i);
+
+    return {
+      prospectValues,
+      valueMatrix,
+      ranking,
+      referencePoints: ref.map(v => Math.round(v * 10000) / 10000),
+      params: { alpha: ProspectTheory.ALPHA, beta: ProspectTheory.BETA, lambda: ProspectTheory.LAMBDA },
+    };
+  }
+}
+
+// ==================== Pareto 支配与最优性验证 ====================
+
+/**
+ * Pareto Dominance (帕累托支配)
+ *
+ * 定义: 候选 a Pareto 支配 b ⟺ ∀j: fⱼ(a) ≥ fⱼ(b) 且 ∃j: fⱼ(a) > fⱼ(b)
+ *
+ * 验证推荐解的 Pareto 最优性:
+ *   若 Top-1 候选不被任何其他候选 Pareto 支配，则推荐具有效率正当性。
+ *   若被支配，说明存在"全面更优"的候选，算法权重设定可能有问题。
+ *
+ * 同时计算 Pareto 前沿 (非支配解集)，为多目标优化提供理论支撑。
+ */
+export interface ParetoResult {
+  /** Pareto 前沿 (非支配解的索引) */
+  paretoFront: number[];
+  /** 各候选是否 Pareto 最优 */
+  isParetoOptimal: boolean[];
+  /** 支配关系矩阵: dominanceMatrix[i][j] = true 表示 i 支配 j */
+  dominanceMatrix: boolean[][];
+  /** Top-1 是否 Pareto 最优 */
+  top1IsParetoOptimal: boolean;
+  /** 支配 Top-1 的候选索引 (若非最优) */
+  dominatorsOfTop1: number[];
+}
+
+export class ParetoDominance {
+  /**
+   * Pareto 支配分析
+   *
+   * @param matrix 决策矩阵 (n×m)
+   * @param top1Index 推荐排序第一的候选索引 (在 matrix 中的行号)
+   */
+  static solve(matrix: number[][], top1Index: number = 0): ParetoResult {
+    const n = matrix.length;
+
+    // 支配关系矩阵
+    const dominanceMatrix: boolean[][] = Array.from({ length: n }, () => new Array(n).fill(false));
+
+    for (let i = 0; i < n; i++) {
+      for (let j = 0; j < n; j++) {
+        if (i === j) continue;
+        // 检查 i 是否支配 j
+        let allGeq = true;
+        let anyGreater = false;
+        for (let k = 0; k < matrix[i].length; k++) {
+          if (matrix[i][k] < matrix[j][k]) {
+            allGeq = false;
+            break;
+          }
+          if (matrix[i][k] > matrix[j][k]) {
+            anyGreater = true;
+          }
+        }
+        dominanceMatrix[i][j] = allGeq && anyGreater;
+      }
+    }
+
+    // Pareto 前沿: 不被任何候选支配的解
+    const isParetoOptimal: boolean[] = [];
+    for (let i = 0; i < n; i++) {
+      const dominated = dominanceMatrix.some((row, j) => j !== i && row[i]);
+      isParetoOptimal.push(!dominated);
+    }
+
+    const paretoFront = isParetoOptimal
+      .map((opt, i) => (opt ? i : -1))
+      .filter(i => i >= 0);
+
+    // Top-1 的支配者
+    const dominatorsOfTop1: number[] = [];
+    for (let i = 0; i < n; i++) {
+      if (i !== top1Index && dominanceMatrix[i][top1Index]) {
+        dominatorsOfTop1.push(i);
+      }
+    }
+
+    return {
+      paretoFront,
+      isParetoOptimal,
+      dominanceMatrix,
+      top1IsParetoOptimal: isParetoOptimal[top1Index],
+      dominatorsOfTop1,
+    };
+  }
+}
+
 // ==================== 灵敏度分析 ====================
 
 /** 灵敏度分析结果 */
@@ -1351,6 +1881,11 @@ export class MatchingAlgorithm {
       critic: CRITICResult;
       topsis: TOPSISResult;
       vikor: VIKORResult;
+      promethee: PROMETHEEResult;
+      gra: GRAResult;
+      shapley: ShapleyResult;
+      prospectTheory: ProspectTheoryResult;
+      pareto: ParetoResult;
       aggregation: RankAggregationResult;
       method: string;
     };
@@ -1380,11 +1915,27 @@ export class MatchingAlgorithm {
     // Phase 3c: VIKOR
     const vikor = VIKOR.solve(matrix, w, v);
 
-    // Phase 4: Borda-Copeland 排名聚合
+    // Phase 3d: PROMETHEE II (超越关系)
+    const promethee = PROMETHEE.solve(matrix, w);
+
+    // Phase 3e: GRA (灰色关联)
+    const gra = GreyRelationalAnalysis.solve(matrix, w);
+
+    // Phase 4: Borda-Copeland 五路排名聚合
     const aggregation = RankAggregation.solve(
-      [wsmRanking, topsis.ranking, vikor.ranking],
-      ['WSM', 'TOPSIS', 'VIKOR'],
+      [wsmRanking, topsis.ranking, vikor.ranking, promethee.ranking, gra.ranking],
+      ['WSM', 'TOPSIS', 'VIKOR', 'PROMETHEE', 'GRA'],
     );
+
+    // Phase 5: Shapley 维度贡献分解 (对 Top-1 候选)
+    const top1Idx = aggregation.finalRanking[0];
+    const shapley = ShapleyValue.solve(matrix, w, top1Idx);
+
+    // Phase 6: 前景理论行为决策验证
+    const prospectTheory = ProspectTheory.solve(matrix, w);
+
+    // Phase 7: Pareto 最优性验证
+    const pareto = ParetoDominance.solve(matrix, top1Idx);
 
     // 按聚合排序输出结果
     const rankedResults = aggregation.finalRanking
@@ -1424,8 +1975,13 @@ export class MatchingAlgorithm {
         critic,
         topsis,
         vikor,
+        promethee,
+        gra,
+        shapley,
+        prospectTheory,
+        pareto,
         aggregation,
-        method: 'MDWMA v3 (AHP-EWM-CRITIC-GT × WSM/TOPSIS/VIKOR × Borda-Copeland)',
+        method: 'MDWMA v4 (AHP-EWM-CRITIC-GT × WSM/TOPSIS/VIKOR/PROMETHEE/GRA × Borda-Copeland × Shapley × PT × Pareto)',
       },
     };
   }
