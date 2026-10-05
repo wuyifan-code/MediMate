@@ -60,7 +60,10 @@ class ApiService {
   constructor() {
     // 创建axios实例 - default to local NestJS server
     this.axiosInstance = axios.create({
-      baseURL: import.meta.env.VITE_API_URL || 'http://localhost:3001/api',
+      // Production must receive VITE_API_URL from the deployment environment.
+      // The same-origin fallback keeps local development convenient without
+      // pointing public visitors at their own localhost.
+      baseURL: import.meta.env.VITE_API_URL || (import.meta.env.DEV ? 'http://localhost:3001/api' : '/api'),
       timeout: 10000, // 10秒超时
       headers: {
         'Content-Type': 'application/json; charset=utf-8',
@@ -192,16 +195,6 @@ class ApiService {
           // 请求已发送但没有收到响应
           console.error('API Error: No response received (backend server may be down)');
           
-          // 对于只读操作，可以返回 Mock 数据作为降级
-          const method = error.config?.method?.toUpperCase();
-          if (method === 'GET') {
-            const mockData = this.getMockData(error.config?.url || '');
-            return {
-              data: mockData
-            };
-          }
-          
-          // 对于写操作（POST/PATCH/DELETE），必须抛出错误让调用方处理
           const networkError = new Error('网络连接失败，请检查后端服务是否运行') as any;
           networkError.isNetworkError = true;
           networkError.code = error.code;
@@ -215,7 +208,7 @@ class ApiService {
     );
   }
 
-  // Mock数据，当后端服务不可用时使用
+  // Legacy mock fixtures remain available for an explicit contest fixture mode.
   private getMockData(url: string): any {
     // 根据请求路径返回不同的模拟数据
     if (url.includes('/hospitals')) {
