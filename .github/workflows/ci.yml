@@ -122,6 +122,8 @@ jobs:
     needs: [frontend, backend]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     environment: production
+    env:
+      HAS_PROD_HOST: ${{ secrets.PROD_HOST != '' }}
 
     steps:
       - name: Checkout code
@@ -129,7 +131,7 @@ jobs:
 
       - name: Deploy to server
         # 未配置 PROD_HOST 等仓库密钥时跳过，保持流水线绿色；配置后自动恢复部署
-        if: ${{ secrets.PROD_HOST != '' }}
+        if: env.HAS_PROD_HOST == 'true'
         uses: appleboy/ssh-action@v1
         with:
           host: ${{ secrets.PROD_HOST }}
