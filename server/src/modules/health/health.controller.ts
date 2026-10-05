@@ -16,7 +16,7 @@ export class HealthController {
         api: 'healthy',
         database: dbStatus.status
       },
-      version: process.env.APP_VERSION || '1.0-contest'
+      version: '1.0.0'
     };
   }
 }

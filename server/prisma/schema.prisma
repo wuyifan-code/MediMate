@@ -148,8 +148,6 @@ model Hospital {
   address    String
   phone      String?
   rating     Float?
-  latitude   Float?
-  longitude  Float?
   imageUrl   String?  @map("image_url")
   createdAt  DateTime @default(now()) @map("created_at")
 

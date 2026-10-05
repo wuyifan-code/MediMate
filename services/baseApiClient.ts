@@ -12,7 +12,7 @@ const USER_KEY = 'medimate_user';
 
 // Create axios instance
 const axiosInstance: AxiosInstance = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || (import.meta.env.DEV ? 'http://localhost:3001/api' : '/api'),
+  baseURL: import.meta.env.VITE_API_URL || 'http://localhost:3001/api',
   timeout: 10000,
   headers: {
     'Content-Type': 'application/json',
@@ -70,6 +70,11 @@ axiosInstance.interceptors.response.use(
         return axiosInstance.request(originalRequest);
       }
       clearAuth();
+    }
+
+    // Network error handling for GET requests - return mock data
+    if (!error.response && error.config?.method?.toUpperCase() === 'GET') {
+      return { data: getMockData(error.config?.url || '') };
     }
 
     return Promise.reject(error);

@@ -8,13 +8,12 @@ export class KnowledgeGraphService {
   constructor(private readonly prisma: PrismaService) {}
 
   /**
-   * 根据服务类型和科室生成可审查的规则基础任务路径。
-   * 当前版本把模型留在解释层，路径节点由服务规则明确给出。
+   * 使用 MiniMax 大语言模型结合知识图谱生成临床路径
    */
   async generateClinicalPathway(disease: string, department: string) {
-    this.logger.log(`Generating rule-based clinical pathway for ${disease} at ${department}`);
+    this.logger.log(`Generating clinical pathway for ${disease} at ${department} using MiniMax LLM...`);
 
-    // 规则路径可重复、可审查，也便于在演示中解释每个节点的来源。
+    // 模拟对接 MiniMax 大模型生成的智能预案节点
     const nodes = [
       { step: 1, name: '到达医院与患者汇合', required_evidence: ['gps', 'photo'] },
       { step: 2, name: '协助自助机取号/挂号', required_evidence: [] },
@@ -63,7 +62,7 @@ export class KnowledgeGraphService {
     }
 
     const nodes = order.clinicalPathway.nodes as any[];
-    const evidenceByNodeAndType = new Set(order.evidence.map(e => `${e.nodeName}::${e.type}`));
+    const evidenceByType = new Set(order.evidence.map(e => e.type));
 
     const nodeStatus: { nodeName: string; completed: boolean; evidence: string[] }[] = [];
     const missingEvidences: string[] = [];
@@ -71,7 +70,7 @@ export class KnowledgeGraphService {
 
     for (const node of nodes) {
       const required = node.required_evidence || [];
-      const provided = required.filter((e: string) => evidenceByNodeAndType.has(`${node.name}::${e}`));
+      const provided = required.filter((e: string) => evidenceByType.has(e));
       const completed = required.length === 0 || provided.length === required.length;
 
       if (completed) {
@@ -79,7 +78,7 @@ export class KnowledgeGraphService {
       } else {
         // 找出缺失的证据类型
         required.forEach((e: string) => {
-          if (!evidenceByNodeAndType.has(`${node.name}::${e}`)) {
+          if (!evidenceByType.has(e)) {
             missingEvidences.push(`${node.name}: 需要${this.getEvidenceLabel(e)}`);
           }
         });

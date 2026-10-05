@@ -63,13 +63,8 @@ class WebSocketService {
 
     this.currentUserId = this.getUserId();
 
-    // Production requires an explicit WebSocket origin so a public page never
-    // attempts to connect to the visitor's localhost.
-    const wsUrl = import.meta.env.VITE_WS_URL || (import.meta.env.DEV ? 'ws://localhost:3001/chat' : '');
-    if (!wsUrl) {
-      console.warn('Production WebSocket is not configured; continuing with HTTP messaging.');
-      return;
-    }
+    // Get WebSocket URL from environment or use default
+    const wsUrl = import.meta.env.VITE_WS_URL || 'ws://localhost:3001/chat';
 
     this.socket = new WebSocket(`${wsUrl}?token=${token}`);
 
