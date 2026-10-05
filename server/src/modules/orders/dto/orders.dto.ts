@@ -27,8 +27,12 @@ export class CreateOrderDto {
   @IsEnum(ServiceType)
   serviceType: ServiceType;
 
-  @ApiProperty({ description: '服务价格' })
+  @ApiProperty({
+    description: '服务价格（仅作兼容保留：服务端会按 Service/EscortService 记录重新计价，此字段被忽略）',
+    deprecated: true,
+  })
   @IsNumber()
+  @Min(0)
   price: number;
 
   @ApiPropertyOptional({ description: '服务时长（小时）', default: 1 })
@@ -58,9 +62,14 @@ export class CreateOrderDto {
   @IsString()
   couponCode?: string;
 
-  @ApiPropertyOptional({ description: '平台费', default: 10 })
+  @ApiPropertyOptional({
+    description: '平台费（仅作兼容保留：平台费由服务端配置统一计费，此字段被忽略）',
+    default: 10,
+    deprecated: true,
+  })
   @IsOptional()
   @IsNumber()
+  @Min(0)
   platformFee?: number;
 }
 

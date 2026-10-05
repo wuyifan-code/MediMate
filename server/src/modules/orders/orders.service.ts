@@ -2,7 +2,7 @@ import { Injectable, NotFoundException, ForbiddenException, BadRequestException,
 import { PrismaService } from '../../prisma/prisma.service';
 import { MatchingService } from '../matching/matching.service';
 import { CreateOrderDto, UpdateOrderDto, CancelOrderDto, RefundOrderDto, SmartMatchDto } from './dto/orders.dto';
-import { OrderStatus, Prisma } from '@prisma/client';
+import { OrderStatus, Prisma, ServiceType } from '@prisma/client';
 
 @Injectable()
 export class OrdersService {
@@ -23,30 +23,57 @@ export class OrdersService {
     return `MM${dateStr}${randomStr}`;
   }
 
-  // 计算优惠券折扣
-  private calculateCouponDiscount(couponCode: string | undefined): number {
+  // ===== 服务端定价常量：客户端传入的 price/platformFee 一律不信任 =====
+  private static readonly PLATFORM_FEE = 10;
+
+  // 服务端兜底价目表（元/小时），仅在既无 serviceId、陪诊师也无对应服务记录时使用
+  private static readonly SERVICE_TYPE_BASE_PRICES: Record<ServiceType, number> = {
+    [ServiceType.FULL_PROCESS]: 100,
+    [ServiceType.APPOINTMENT]: 50,
+    [ServiceType.REPORT_PICKUP]: 30,
+    [ServiceType.VIP_TRANSPORT]: 80,
+  };
+
+  // 服务端优惠券表：折扣 + 有效期（过期直接拒绝，不再无限期有效）
+  private static readonly COUPONS: Record<string, { discount: number; validUntil: string }> = {
+    MEDIMATE10: { discount: 10, validUntil: '2026-12-31' },
+    WELCOME20: { discount: 20, validUntil: '2026-12-31' },
+    NEWUSER50: { discount: 50, validUntil: '2026-12-31' },
+  };
+
+  // 服务端优惠券校验：只认服务端表并校验有效期；折扣封顶为服务小计，保证订单总额 ≥ 平台费
+  private resolveCouponDiscount(couponCode: string | undefined, serviceTotal: number): number {
     if (!couponCode) return 0;
-    
-    const coupons: Record<string, number> = {
-      'MEDIMATE10': 10,
-      'WELCOME20': 20,
-      'NEWUSER50': 50,
-    };
-    
-    return coupons[couponCode.toUpperCase()] || 0;
+
+    const normalized = couponCode.toUpperCase();
+    const coupon = OrdersService.COUPONS[normalized];
+    if (!coupon) return 0;
+
+    if (new Date(coupon.validUntil).getTime() < Date.now()) {
+      throw new BadRequestException(`优惠券 ${normalized} 已过期`);
+    }
+
+    return Math.min(coupon.discount, serviceTotal);
   }
 
   // 创建订单（支持智能匹配自动分配陪诊师）
   async create(patientId: string, dto: CreateOrderDto) {
-    // 计算总价
     const duration = dto.duration || 1;
-    const serviceTotal = dto.price * duration;
-    const platformFee = dto.platformFee || 10;
-    const couponDiscount = this.calculateCouponDiscount(dto.couponCode);
-    const totalAmount = Math.max(0, serviceTotal + platformFee - couponDiscount);
 
-    // 生成订单号
-    const orderNo = this.generateOrderNo();
+    // ===== 服务端定价（第一阶段）：指定 serviceId 时以 Service.basePrice 为准 =====
+    let unitPrice: number | null = null;
+    if (dto.serviceId) {
+      const service = await this.prisma.service.findUnique({
+        where: { id: dto.serviceId },
+      });
+      if (!service || !service.isActive) {
+        throw new BadRequestException('所选服务不存在或已下架');
+      }
+      if (service.type !== dto.serviceType) {
+        throw new BadRequestException('服务类型与所选服务不一致');
+      }
+      unitPrice = service.basePrice;
+    }
 
     // ===== 智能匹配：如果未指定陪诊师，自动匹配最优 =====
     let escortId = dto.escortId;
@@ -71,7 +98,9 @@ export class OrdersService {
       const matchResult = await this.matchingService.matchEscorts({
         department,
         hospitalId: dto.hospitalId,
-        budget: dto.price,
+        // 预算提示仅用服务端已知的单价（serviceId 定价结果或服务端兜底价目表），
+        // 不再信任客户端传入的 price
+        budget: unitPrice ?? OrdersService.SERVICE_TYPE_BASE_PRICES[dto.serviceType],
         serviceType: dto.serviceType,
         appointmentDate: dto.appointmentDate,
         appointmentTime: dto.appointmentTime,
@@ -116,6 +145,28 @@ export class OrdersService {
       );
     }
 
+    // ===== 服务端定价（第二阶段）：未指定 serviceId 时按陪诊师已发布服务计价，兜底服务端价目表 =====
+    if (unitPrice === null) {
+      const escortService = escortId
+        ? await this.prisma.escortService.findFirst({
+            where: { escortId, serviceType: dto.serviceType, isActive: true },
+            orderBy: { createdAt: 'desc' },
+          })
+        : null;
+      unitPrice = escortService
+        ? escortService.pricePerHour
+        : OrdersService.SERVICE_TYPE_BASE_PRICES[dto.serviceType];
+    }
+
+    // ===== 金额计算（全部服务端：忽略客户端传入的 price / platformFee） =====
+    const serviceTotal = unitPrice * duration;
+    const platformFee = OrdersService.PLATFORM_FEE;
+    const couponDiscount = this.resolveCouponDiscount(dto.couponCode, serviceTotal);
+    const totalAmount = serviceTotal + platformFee - couponDiscount;
+
+    // 生成订单号
+    const orderNo = this.generateOrderNo();
+
     // 使用事务确保数据一致性
     const result = await this.prisma.$transaction(async (tx) => {
       // 创建订单
@@ -128,7 +179,7 @@ export class OrdersService {
           serviceId: dto.serviceId,
           serviceType: dto.serviceType,
           status: OrderStatus.PENDING,
-          price: dto.price,
+          price: unitPrice,
           duration,
           couponCode: dto.couponCode,
           couponDiscount,

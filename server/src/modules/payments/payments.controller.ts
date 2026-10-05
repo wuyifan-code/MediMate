@@ -92,8 +92,21 @@ export class PaymentsController {
 
   @Post('wechat/notify')
   @ApiOperation({ summary: 'Handle WeChat payment callback' })
-  async handleWechatNotify(@Body() data: WechatNotifyDto) {
-    return this.paymentsService.handleWechatNotify(data);
+  async handleWechatNotify(
+    @Req() req: RawBodyRequest<ExpressRequest>,
+    @Headers('wechatpay-signature') signature?: string,
+    @Headers('wechatpay-timestamp') timestamp?: string,
+    @Headers('wechatpay-nonce') nonce?: string,
+    @Headers('wechatpay-serial') serial?: string,
+    @Body() data?: WechatNotifyDto,
+  ) {
+    return this.paymentsService.handleWechatNotify(data as WechatNotifyDto, {
+      signature,
+      timestamp,
+      nonce,
+      serial,
+      rawBody: req.rawBody,
+    });
   }
 
   @Get('wechat/query/:orderId')

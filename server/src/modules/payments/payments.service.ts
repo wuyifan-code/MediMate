@@ -1,9 +1,26 @@
-import { Injectable, BadRequestException, NotFoundException, Logger, ForbiddenException } from '@nestjs/common';
+import {
+  Injectable,
+  BadRequestException,
+  NotFoundException,
+  Logger,
+  ForbiddenException,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
-import { CreateStripePaymentDto, ConfirmPaymentDto, WechatPaymentDto, RefundDto, CreateRefundDto, ApproveRefundDto } from './dto/payments.dto';
+import {
+  CreateStripePaymentDto,
+  ConfirmPaymentDto,
+  WechatPaymentDto,
+  RefundDto,
+  CreateRefundDto,
+  ApproveRefundDto,
+  WechatNotifyDto,
+  WechatCallbackMeta,
+} from './dto/payments.dto';
 import Stripe from 'stripe';
 import * as crypto from 'crypto';
 import axios from 'axios';
+import { assertPublicHttpUrl, OUTBOUND_REQUEST_TIMEOUT_MS } from '../../common/utils/assert-public-url';
 
 // WeChat Pay V3 SDK (simplified implementation)
 interface WechatPayConfig {
@@ -15,11 +32,31 @@ interface WechatPayConfig {
   notifyUrl: string;
 }
 
+const WECHAT_PAY_API_BASE = 'https://api.mch.weixin.qq.com';
+
+/** 微信支付解密后的回调解报文（v3 支付通知 resource 明文） */
+interface DecryptedWechatNotification {
+  out_trade_no?: string;
+  transaction_id?: string;
+  trade_state?: string;
+  attach?: string;
+  amount?: {
+    total?: number;
+    payer_total?: number;
+    currency?: string;
+    payer_currency?: string;
+  };
+  [key: string]: unknown;
+}
+
 @Injectable()
 export class PaymentsService {
   private stripe: Stripe;
   private wechatConfig: WechatPayConfig;
   private readonly logger = new Logger(PaymentsService.name);
+  /** 微信平台证书缓存（serial -> 公钥证书 PEM），用于回调验签 */
+  private readonly platformCertCache = new Map<string, string>();
+  private platformCertsFetchedAt = 0;
 
   constructor(private prisma: PrismaService) {
     // Initialize Stripe
@@ -350,6 +387,7 @@ export class PaymentsService {
         const signature = this.generateWechatSignature('POST', '/v3/pay/transactions/native', timestamp, nonceStr, bodyStr);
         const authorization = `WECHATPAY2-SHA256-RSA2048 mchid="${this.wechatConfig.mchid}",nonce_str="${nonceStr}",signature="${signature}",timestamp="${timestamp}",serial_no="${this.wechatConfig.serialNo}"`;
 
+        await assertPublicHttpUrl(`${WECHAT_PAY_API_BASE}/v3/pay/transactions/native`);
         const response = await axios.post(
           'https://api.mch.weixin.qq.com/v3/pay/transactions/native',
           requestBody,
@@ -359,6 +397,7 @@ export class PaymentsService {
               'Content-Type': 'application/json',
               'Accept': 'application/json',
             },
+            timeout: OUTBOUND_REQUEST_TIMEOUT_MS,
           }
         );
 
@@ -423,6 +462,7 @@ export class PaymentsService {
         const signature = this.generateWechatSignature('GET', url, timestamp, nonceStr, '');
         const authorization = `WECHATPAY2-SHA256-RSA2048 mchid="${this.wechatConfig.mchid}",nonce_str="${nonceStr}",signature="${signature}",timestamp="${timestamp}",serial_no="${this.wechatConfig.serialNo}"`;
 
+        await assertPublicHttpUrl(`${WECHAT_PAY_API_BASE}${url}`);
         const response = await axios.get(
           `https://api.mch.weixin.qq.com${url}`,
           {
@@ -430,6 +470,7 @@ export class PaymentsService {
               'Authorization': authorization,
               'Accept': 'application/json',
             },
+            timeout: OUTBOUND_REQUEST_TIMEOUT_MS,
           }
         );
 
@@ -455,67 +496,270 @@ export class PaymentsService {
   }
 
   /**
-   * Handle WeChat Pay callback notification
+   * AES-256-GCM 解密（微信支付 APIv3：ciphertext 为 base64，末 16 字节为 GCM auth tag）
    */
-  async handleWechatNotify(notifyData: any) {
+  private decryptWechatAesGcm(ciphertext: string, nonce: string, associatedData: string): Buffer {
+    const key = Buffer.from(this.wechatConfig.apiV3Key, 'utf8');
+    if (key.length !== 32) {
+      throw new UnauthorizedException('WeChat Pay APIv3 key is missing or not 32 bytes');
+    }
+
+    const cipherBuffer = Buffer.from(ciphertext, 'base64');
+    if (cipherBuffer.length <= 16) {
+      throw new UnauthorizedException('Invalid WeChat notify ciphertext');
+    }
+
+    const authTag = cipherBuffer.subarray(cipherBuffer.length - 16);
+    const encryptedData = cipherBuffer.subarray(0, cipherBuffer.length - 16);
+    const iv = Buffer.from(nonce, 'utf8');
+    const aad = Buffer.from(associatedData, 'utf8');
+
+    const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);
+    decipher.setAuthTag(authTag);
+    decipher.setAAD(aad);
+    return Buffer.concat([decipher.update(encryptedData), decipher.final()]);
+  }
+
+  /**
+   * 解析微信平台证书的候选公钥，用于回调验签：
+   * 1. 环境变量 WECHAT_PAY_PUBLIC_KEY（公钥模式，可配 WECHAT_PAY_PUBLIC_KEY_ID）；
+   * 2. 环境变量 WECHAT_PAY_PLATFORM_CERTS / WECHAT_PAY_PLATFORM_CERT（平台证书 PEM）；
+   * 3. 商户号 + 商户私钥配置齐全时，从 /v3/certificates 拉取并缓存平台证书。
+   * 返回 null 表示当前无法验签（调用方需降级并告警）。
+   */
+  private async getWechatPlatformVerifyKeys(serial: string): Promise<string[] | null> {
+    // 1. 公钥模式
+    const publicKeyEnv = process.env.WECHAT_PAY_PUBLIC_KEY;
+    if (publicKeyEnv) {
+      const publicKeyId = process.env.WECHAT_PAY_PUBLIC_KEY_ID;
+      if (publicKeyId && publicKeyId !== serial) {
+        return null;
+      }
+      return [publicKeyEnv.replace(/\\n/g, '\n')];
+    }
+
+    // 2. 环境变量提供的平台证书
+    const envCerts = (process.env.WECHAT_PAY_PLATFORM_CERTS || process.env.WECHAT_PAY_PLATFORM_CERT || '')
+      .split('-----END CERTIFICATE-----')
+      .map(part => part.trim())
+      .filter(part => part.length > 0)
+      .map(part => `${part}\n-----END CERTIFICATE-----`);
+    if (envCerts.length > 0) {
+      const matched: string[] = [];
+      for (const pem of envCerts) {
+        try {
+          const cert = new crypto.X509Certificate(pem);
+          if (cert.serialNumber.toLowerCase() === serial.toLowerCase()) {
+            matched.push(pem);
+          }
+        } catch {
+          this.logger.warn('Ignoring invalid WECHAT_PAY_PLATFORM_CERT(S) PEM entry');
+        }
+      }
+      // 序列号匹配不到时仍尝试全部已配置证书（证书序列号格式差异兜底），
+      // 验签本身仍能证明该通知由微信平台私钥签名。
+      return matched.length > 0 ? matched : envCerts;
+    }
+
+    // 3. 在线拉取平台证书（需商户凭据齐全）
+    const canFetch =
+      this.wechatConfig.mchid &&
+      this.wechatConfig.privateKey &&
+      this.wechatConfig.serialNo &&
+      this.wechatConfig.apiV3Key;
+    if (!canFetch) {
+      return null;
+    }
+
+    const now = Date.now();
+    if (!this.platformCertCache.has(serial) && now - this.platformCertsFetchedAt > 60_000) {
+      await this.fetchWechatPlatformCertificates();
+    }
+    const cached = this.platformCertCache.get(serial);
+    if (!cached) {
+      return null;
+    }
+    return [cached];
+  }
+
+  /**
+   * 从微信 /v3/certificates 拉取平台证书并缓存
+   */
+  private async fetchWechatPlatformCertificates(): Promise<void> {
     try {
-      // Decrypt notification data (simplified)
-      let decryptedData = notifyData;
-      
-      // If encrypted, decrypt using API v3 key
-      if (notifyData.resource) {
-        const { ciphertext, associated_data, nonce } = notifyData.resource;
-        
-        // Use createDecipheriv for AES-GCM decryption
-        const key = Buffer.from(this.wechatConfig.apiV3Key);
-        const authTag = Buffer.from(ciphertext.slice(-32), 'hex');
-        const encryptedData = Buffer.from(ciphertext.slice(0, -32), 'hex');
-        const aad = Buffer.from(associated_data);
-        const iv = Buffer.from(nonce);
-        
-        const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);
-        decipher.setAuthTag(authTag);
-        decipher.setAAD(aad);
-        
-        let decrypted = decipher.update(encryptedData, undefined, 'utf8');
-        decrypted += decipher.final('utf8');
-        decryptedData = JSON.parse(decrypted);
+      const urlPath = '/v3/certificates';
+      const timestamp = Math.floor(Date.now() / 1000).toString();
+      const nonceStr = this.generateNonceStr();
+      const signature = this.generateWechatSignature('GET', urlPath, timestamp, nonceStr, '');
+      const authorization = `WECHATPAY2-SHA256-RSA2048 mchid="${this.wechatConfig.mchid}",nonce_str="${nonceStr}",signature="${signature}",timestamp="${timestamp}",serial_no="${this.wechatConfig.serialNo}"`;
+
+      await assertPublicHttpUrl(`${WECHAT_PAY_API_BASE}${urlPath}`);
+      const response = await axios.get(`${WECHAT_PAY_API_BASE}${urlPath}`, {
+        headers: {
+          'Authorization': authorization,
+          'Accept': 'application/json',
+        },
+        timeout: OUTBOUND_REQUEST_TIMEOUT_MS,
+      });
+
+      const certs = response?.data?.data;
+      if (Array.isArray(certs)) {
+        for (const cert of certs) {
+          const { ciphertext, nonce, associated_data } = cert.encrypt_certificate || {};
+          if (!ciphertext || !nonce || !cert.serial_no) continue;
+          const pem = this.decryptWechatAesGcm(ciphertext, nonce, associated_data || 'certificate').toString('utf8');
+          this.platformCertCache.set(cert.serial_no, pem);
+        }
+        this.platformCertsFetchedAt = Date.now();
+        this.logger.log(`Fetched ${this.platformCertCache.size} WeChat platform certificate(s)`);
+      }
+    } catch (error) {
+      this.logger.error(
+        'Failed to fetch WeChat platform certificates:',
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+  }
+
+  /**
+   * 微信回调验签：
+   * - 时间戳窗口（±5 分钟）始终强制校验；
+   * - 拿得到平台公钥/证书时严格验签，失败返回 401；
+   * - 拿不到平台证书时记录告警并降级（此时报文真伪由强制 AES-GCM 解密保证）。
+   */
+  private async verifyWechatCallbackSignature(meta: WechatCallbackMeta): Promise<void> {
+    const { signature, timestamp, nonce, serial } = meta;
+
+    const ts = Number(timestamp);
+    if (!timestamp || !Number.isFinite(ts) || Math.abs(Date.now() / 1000 - ts) > 300) {
+      throw new UnauthorizedException('WeChat notify timestamp is missing or outside the allowed window');
+    }
+    if (!signature || !nonce || !serial) {
+      throw new UnauthorizedException('WeChat notify signature headers are missing');
+    }
+    if (!meta.rawBody || meta.rawBody.length === 0) {
+      throw new UnauthorizedException('WeChat notify raw body is missing');
+    }
+
+    const verifyKeys = await this.getWechatPlatformVerifyKeys(serial);
+    if (!verifyKeys || verifyKeys.length === 0) {
+      this.logger.warn(
+        'WeChat platform certificate unavailable, skipping signature verification ' +
+        '(payload authenticity still enforced by mandatory AES-GCM decryption)',
+      );
+      return;
+    }
+
+    const message = Buffer.from(`${timestamp}\n${nonce}\n${meta.rawBody.toString('utf8')}\n`, 'utf8');
+    const signatureBuffer = Buffer.from(signature, 'base64');
+    const verified = verifyKeys.some(key => {
+      try {
+        return crypto.createVerify('RSA-SHA256').update(message).verify(key, signatureBuffer);
+      } catch {
+        return false;
+      }
+    });
+
+    if (!verified) {
+      throw new UnauthorizedException('WeChat notify signature verification failed');
+    }
+  }
+
+  /**
+   * Handle WeChat Pay callback notification
+   *
+   * 安全约束：
+   * - 先验签（时间戳窗口 + 平台证书/公钥，尽力而为）；
+   * - 必须携带 resource 且经 APIv3 key AES-256-GCM 解密，不接受任何明文回调
+   *   （原「无 resource 就当明文」分支已删除，杜绝伪造 trade_state=SUCCESS）；
+   * - 解密后的 out_trade_no/amount 必须与本地 payment 记录一致才允许 finalize。
+   */
+  async handleWechatNotify(
+    notifyData: WechatNotifyDto,
+    callbackMeta: WechatCallbackMeta = {},
+  ): Promise<{ code: string; message: string }> {
+    try {
+      // 1. 验签（时间戳窗口强制，平台证书尽力接入）
+      await this.verifyWechatCallbackSignature(callbackMeta);
+
+      // 2. 必须存在 resource 并通过 APIv3 key 解密
+      const resource = notifyData?.resource;
+      if (!resource || !resource.ciphertext || !resource.nonce) {
+        throw new UnauthorizedException('WeChat notify resource is required and must be encrypted');
+      }
+      if (resource.algorithm && resource.algorithm !== 'AEAD_AES_256_GCM') {
+        throw new UnauthorizedException('Unsupported WeChat notify encryption algorithm');
       }
 
-      const { out_trade_no, transaction_id, trade_state, attach } = decryptedData;
-      const attachData = JSON.parse(attach || '{}');
-      const orderId = attachData.orderId;
-
-      if (!orderId) {
-        throw new BadRequestException('Invalid notification data');
+      let decryptedData: DecryptedWechatNotification;
+      try {
+        const decryptedBuffer = this.decryptWechatAesGcm(
+          resource.ciphertext,
+          resource.nonce,
+          resource.associated_data || '',
+        );
+        decryptedData = JSON.parse(decryptedBuffer.toString('utf8')) as DecryptedWechatNotification;
+      } catch (error) {
+        if (error instanceof UnauthorizedException) throw error;
+        // GCM tag 校验失败/JSON 解析失败都意味着报文不可信
+        throw new UnauthorizedException('WeChat notify payload decryption failed');
       }
 
+      const { out_trade_no, transaction_id, trade_state, attach, amount } = decryptedData;
+      if (!out_trade_no) {
+        throw new UnauthorizedException('WeChat notify payload is missing out_trade_no');
+      }
+
+      // 3. 与本地支付记录一致性校验
       const payment = await this.prisma.payment.findUnique({
         where: { wechatOrderId: out_trade_no },
       });
 
-      if (!payment) {
-        throw new NotFoundException('Payment not found');
+      if (!payment || payment.wechatOrderId !== out_trade_no) {
+        throw new UnauthorizedException('WeChat notify does not match any local payment record');
+      }
+
+      // attach 中的 orderId 若存在，必须与本地记录一致
+      let attachOrderId: string | undefined;
+      if (attach) {
+        try {
+          attachOrderId = JSON.parse(attach)?.orderId;
+        } catch {
+          attachOrderId = undefined;
+        }
+        if (attachOrderId && attachOrderId !== payment.orderId) {
+          throw new UnauthorizedException('WeChat notify attach.orderId does not match local payment record');
+        }
+      }
+
+      // 金额一致性（分）：解密报文的 amount.total 必须等于本地记录
+      if (amount?.total == null || Math.round(Number(amount.total)) !== Math.round(payment.amount)) {
+        throw new UnauthorizedException('WeChat notify amount does not match local payment record');
       }
 
       if (trade_state === 'SUCCESS') {
         await this.finalizePaymentSuccess({
           paymentId: payment.id,
-          orderId,
+          orderId: payment.orderId,
           userId: payment.userId,
           note: `Payment confirmed via WeChat Pay. Transaction ID: ${transaction_id}`,
         });
       }
 
-      return { 
-        code: 'SUCCESS', 
+      return {
+        code: 'SUCCESS',
         message: 'OK',
       };
     } catch (error) {
+      // 验签/解密/一致性失败 → HTTP 401（微信会重试）；其余按 FAIL 应答
+      if (error instanceof UnauthorizedException) {
+        this.logger.warn(`WeChat notify rejected: ${error.message}`);
+        throw error;
+      }
       this.logger.error('WeChat notify error:', error);
       return {
         code: 'FAIL',
-        message: error.message,
+        message: error instanceof Error ? error.message : String(error),
       };
     }
   }
@@ -821,6 +1065,7 @@ export class PaymentsService {
       const signature = this.generateWechatSignature('POST', '/v3/refund/domestic/refunds', timestamp, nonceStr, bodyStr);
       const authorization = `WECHATPAY2-SHA256-RSA2048 mchid="${this.wechatConfig.mchid}",nonce_str="${nonceStr}",signature="${signature}",timestamp="${timestamp}",serial_no="${this.wechatConfig.serialNo}"`;
 
+      await assertPublicHttpUrl(`${WECHAT_PAY_API_BASE}/v3/refund/domestic/refunds`);
       const response = await axios.post(
         'https://api.mch.weixin.qq.com/v3/refund/domestic/refunds',
         requestBody,
@@ -830,6 +1075,7 @@ export class PaymentsService {
             'Content-Type': 'application/json',
             'Accept': 'application/json',
           },
+          timeout: OUTBOUND_REQUEST_TIMEOUT_MS,
         }
       );
 

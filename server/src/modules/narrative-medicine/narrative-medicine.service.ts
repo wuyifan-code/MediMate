@@ -1,5 +1,6 @@
 import { Injectable, Logger, HttpException, HttpStatus, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import { assertPublicHttpUrl, OUTBOUND_REQUEST_TIMEOUT_MS } from '../../common/utils/assert-public-url';
 
 @Injectable()
 export class NarrativeMedicineService {
@@ -58,7 +59,9 @@ ${evidenceSummary}`;
     // 4. 调用 MiniMax 接口 (基于通用 OpenAI 兼容接口，兼容 abab6.5s-chat 等模型)
     let generatedContent: string;
     try {
-      const response = await fetch('https://api.minimaxi.com/v1/chat/completions', {
+      // 出站 URL 统一校验 + 超时兜底
+      const targetUrl = await assertPublicHttpUrl('https://api.minimaxi.com/v1/chat/completions');
+      const response = await fetch(targetUrl.toString(), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -68,7 +71,8 @@ ${evidenceSummary}`;
           model: 'MiniMax-M2.7',
           messages: [{ role: 'user', content: prompt }],
           reasoning_split: true
-        })
+        }),
+        signal: AbortSignal.timeout(OUTBOUND_REQUEST_TIMEOUT_MS)
       });
 
       if (!response.ok) throw new Error(`MiniMax HTTP ${response.status}`);

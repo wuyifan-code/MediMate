@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { AiProvider } from '../interfaces/ai-provider.interface';
+import { assertPublicHttpUrl, OUTBOUND_REQUEST_TIMEOUT_MS } from '../../../common/utils/assert-public-url';
 
 @Injectable()
 export class MiniMaxProvider implements AiProvider {
@@ -34,10 +35,11 @@ export class MiniMaxProvider implements AiProvider {
     }
 
     try {
-      const url = `${this.baseUrl}/chat/completions`;
-      this.logger.log(`Calling MiniMax API: ${url} for model ${this.model}`);
-      
-      const response = await fetch(url, {
+      // 出站 URL 统一校验：仅 http/https、拒绝环回/私有/保留地址（MINIMAX_BASE_URL 来自环境变量，必须防 SSRF）
+      const targetUrl = await assertPublicHttpUrl(`${this.baseUrl}/chat/completions`);
+      this.logger.log(`Calling MiniMax API: ${targetUrl.toString()} for model ${this.model}`);
+
+      const response = await fetch(targetUrl.toString(), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -47,6 +49,8 @@ export class MiniMaxProvider implements AiProvider {
           model: this.model,
           messages,
         }),
+        // 统一出站超时兜底
+        signal: AbortSignal.timeout(OUTBOUND_REQUEST_TIMEOUT_MS),
       });
 
       this.logger.log(`MiniMax API Response Status: ${response.status}`);

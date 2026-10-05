@@ -1,6 +1,9 @@
 /* MediMate 专业深色模式配色方案 */
 @import "tailwindcss";
 
+/* 深色模式由 ThemeContext 给 <html> 加 .dark class 控制，而非跟随系统 prefers-color-scheme */
+@custom-variant dark (&:where(.dark, .dark *));
+
 @theme {
   --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Helvetica Neue", sans-serif;
   --radius-lg: 1rem;
@@ -76,6 +79,28 @@ body {
   background-color: var(--bg-primary);
   color: var(--text-primary);
   transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+/* 页面切换过渡（纯 CSS 实现，替代 framer-motion AnimatePresence） */
+@keyframes page-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.page-transition {
+  animation: page-fade-in 0.2s ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .page-transition {
+    animation: none;
+  }
 }
 
 /* 滚动条样式 */
