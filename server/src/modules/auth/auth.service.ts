@@ -25,12 +25,16 @@ export class AuthService {
     // Hash password
     const passwordHash = await bcrypt.hash(dto.password, 10);
 
+    // 服务端强制覆盖角色：公开注册只允许 PATIENT/ESCORT，绝不透传客户端的 role，
+    // 防止通过 {"role":"ADMIN"} 自封管理员。ADMIN 由种子脚本或已有管理员授予。
+    const role: UserRole = dto.role === UserRole.ESCORT ? UserRole.ESCORT : UserRole.PATIENT;
+
     // Create user with profile
     const user = await this.prisma.user.create({
       data: {
         email: dto.email,
         passwordHash,
-        role: dto.role,
+        role,
         profile: {
           create: {
             name: dto.name,

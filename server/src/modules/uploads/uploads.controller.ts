@@ -57,8 +57,11 @@ export class UploadsController {
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Delete uploaded file' })
-  async deleteFile(@Param('filename') filename: string) {
-    const result = await this.uploadsService.deleteFile(filename);
+  async deleteFile(@Request() req: any, @Param('filename') filename: string) {
+    const result = await this.uploadsService.deleteFile(filename, {
+      requesterId: req.user?.sub,
+      isAdmin: req.user?.role === 'ADMIN',
+    });
     return {
       success: result,
     };

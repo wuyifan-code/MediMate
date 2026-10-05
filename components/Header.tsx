@@ -1,5 +1,4 @@
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
-import { motion } from 'framer-motion';
 import { UserRole, PageType, Language, UserInfo } from '../types';
 import { apiService } from '../services/apiService';
 import { useMessages } from '../contexts/MessageContext';
@@ -269,28 +268,18 @@ export const Header: React.FC<HeaderProps> = ({ role, setRole, currentPage, setP
             {navItems.map((item) => {
               const isActive = currentPage === item.id;
               return (
-              <motion.div 
+              <div
                 key={item.id}
                 onClick={() => handleNavClick(item.id)}
-                whileTap={{ scale: 0.92, transition: { type: "spring", stiffness: 400, damping: 14 } }}
-                className={`relative flex items-center gap-4 p-3 rounded-full cursor-pointer group w-max xl:w-full ${isActive ? 'font-bold' : 'hover:bg-slate-100 dark:hover:bg-slate-800'}`}
+                className={`relative flex items-center gap-4 p-3 rounded-full cursor-pointer group w-max xl:w-full transition-transform duration-150 active:scale-[0.92] ${isActive ? 'font-bold' : 'hover:bg-slate-100 dark:hover:bg-slate-800'}`}
               >
                 {isActive && (
-                  <motion.div
-                    layoutId="sidebar-active-pill"
-                    className="absolute inset-0 bg-teal-50 dark:bg-teal-900/40 rounded-full z-0"
-                    transition={{ type: "spring", bounce: 0.2, duration: 0.5 }}
-                  />
+                  <div className="absolute inset-0 bg-teal-50 dark:bg-teal-900/40 rounded-full z-0" />
                 )}
                 <div className="relative z-10 flex items-center justify-center">
-                  <motion.div
-                    animate={{ 
-                       scale: isActive ? 1.05 : 1,
-                    }}
-                    transition={{ type: "spring", stiffness: 300, damping: 20 }}
-                  >
+                  <div className={`transition-transform duration-200 ${isActive ? 'scale-105' : 'scale-100'}`}>
                     <item.icon className={`h-7 w-7 ${isActive ? 'stroke-[2.5px] text-teal-600 dark:text-teal-400' : 'stroke-2 text-slate-900 dark:text-slate-300'}`} />
-                  </motion.div>
+                  </div>
                   {'badge' in item && item.badge !== undefined && (
                     item.badge > 0 ? (
                       renderBadge(item.badge, item.onBadgeClick)
@@ -300,19 +289,18 @@ export const Header: React.FC<HeaderProps> = ({ role, setRole, currentPage, setP
                   )}
                 </div>
                 <span className={`hidden xl:block text-xl mr-4 z-10 ${isActive ? 'text-teal-700 dark:text-teal-400' : 'text-slate-900 dark:text-slate-300'}`}>{item.label}</span>
-              </motion.div>
+              </div>
             )})}
             
             {/* More Menu Trigger */}
             <div className="relative">
-              <motion.div 
-                whileTap={{ scale: 0.92, transition: { type: "spring", stiffness: 400, damping: 14 } }}
-                className="flex items-center gap-4 p-3 rounded-full cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors group w-max xl:w-full"
+              <div
+                className="flex items-center gap-4 p-3 rounded-full cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 transition-[background-color,transform] duration-150 active:scale-[0.92] group w-max xl:w-full"
                 onClick={() => setShowMoreMenu(!showMoreMenu)}
               >
                 <MoreHorizontal className="h-7 w-7 text-slate-900 dark:text-slate-300" />
                 <span className="hidden xl:block text-xl mr-4 text-slate-900 dark:text-slate-300">{t.more}</span>
-              </motion.div>
+              </div>
 
               {/* Dropdown Menu */}
               {showMoreMenu && (
@@ -354,9 +342,8 @@ export const Header: React.FC<HeaderProps> = ({ role, setRole, currentPage, setP
         {/* User Profile Bubble */}
         <div className="mt-auto">
           {role !== UserRole.GUEST ? (
-            <motion.div
-              whileTap={{ scale: 0.96 }}
-              className="flex items-center gap-3 p-3 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer w-max xl:w-full transition-colors relative group"
+            <div
+              className="flex items-center gap-3 p-3 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer w-max xl:w-full transition-[background-color,transform] duration-150 active:scale-[0.96] relative group"
               onClick={() => {
                 const confirmLogout = window.confirm(t.logout + '?');
                 if (confirmLogout && onLogout) {
@@ -372,7 +359,7 @@ export const Header: React.FC<HeaderProps> = ({ role, setRole, currentPage, setP
                 <div className="text-slate-500 dark:text-slate-400 text-sm">@{user?.email?.split('@')[0] || (role === UserRole.PATIENT ? 'patient' : 'wang_escort')}</div>
               </div>
               <LogOut className="hidden xl:block h-5 w-5 text-slate-400 group-hover:text-red-500" />
-            </motion.div>
+            </div>
           ) : (
             <div
               className="flex items-center gap-3 p-3 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer w-max xl:w-full transition-colors"

@@ -1,4 +1,13 @@
-import { IsString, IsNumber, IsOptional, IsEnum } from 'class-validator';
+import {
+  IsString,
+  IsNumber,
+  IsOptional,
+  IsEnum,
+  IsIn,
+  Min,
+  ValidateNested,
+} from 'class-validator';
+import { Type } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class CreateStripePaymentDto {
@@ -73,28 +82,74 @@ export class RejectRefundDto {
   reason: string;
 }
 
+export class WechatNotifyResourceDto {
+  @ApiProperty()
+  @IsString()
+  original_type: string;
+
+  @ApiProperty()
+  @IsIn(['AEAD_AES_256_GCM'])
+  algorithm: string;
+
+  @ApiProperty()
+  @IsString()
+  ciphertext: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  associated_data?: string;
+
+  @ApiProperty()
+  @IsString()
+  nonce: string;
+}
+
 export class WechatNotifyDto {
   @ApiProperty()
+  @IsString()
   id: string;
 
   @ApiProperty()
+  @IsString()
   create_time: string;
 
   @ApiProperty()
+  @IsString()
   resource_type: string;
 
   @ApiProperty()
+  @IsString()
   event_type: string;
 
-  @ApiProperty()
-  summary: string;
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  summary?: string;
 
-  @ApiProperty()
-  resource: {
-    original_type: string;
-    algorithm: string;
-    ciphertext: string;
-    associated_data: string;
-    nonce: string;
-  };
+  @ApiProperty({ type: WechatNotifyResourceDto })
+  @ValidateNested()
+  @Type(() => WechatNotifyResourceDto)
+  resource: WechatNotifyResourceDto;
+}
+
+/** 微信支付回调HTTP头 + 原始报文，用于验签 */
+export class WechatCallbackMeta {
+  @IsOptional()
+  @IsString()
+  signature?: string;
+
+  @IsOptional()
+  @IsString()
+  timestamp?: string;
+
+  @IsOptional()
+  @IsString()
+  nonce?: string;
+
+  @IsOptional()
+  @IsString()
+  serial?: string;
+
+  rawBody?: Buffer;
 }

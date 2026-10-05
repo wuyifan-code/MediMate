@@ -1,18 +1,7 @@
 import React, { useState, useEffect, useMemo, lazy, Suspense } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
 import { Header } from './components/Header';
-import { Login } from './components/Login';
-import { Register } from './components/Register';
-import { Settings } from './components/Settings';
-import { Explore } from './components/Explore';
-import { Notifications } from './components/Notifications';
-import { Messages } from './components/Messages';
-import { Profile } from './components/Profile';
-import { SearchResults } from './components/SearchResults';
 import { SearchBar } from './components/SearchBar';
 import { ErrorBoundary } from './components/ErrorBoundary';
-import { OrderConfirmation } from './components/OrderConfirmation';
-import { OrderList } from './components/OrderList';
 import { UserRole, PageType, Language, UserInfo, Hospital, EscortProfile } from './types';
 import { Search, MoreHorizontal, Mail, FileText, Home, Plus, X, Settings as SettingsIcon, Share, BrainCircuit, Loader2, MessageCircle, Zap, Heart, BarChart2, Calendar, ClipboardList, Car, FileSearch } from 'lucide-react';
 import { apiService } from './services/apiService';
@@ -23,6 +12,18 @@ import { MessageProvider, useMessages } from './contexts/MessageContext';
 const PatientDashboard = lazy(() => import('./components/PatientDashboard').then(m => ({ default: m.PatientDashboard })));
 const EscortDashboard = lazy(() => import('./components/EscortDashboard').then(m => ({ default: m.EscortDashboard })));
 const AdminDashboard = lazy(() => import('./components/AdminDashboard').then(m => ({ default: m.AdminDashboard })));
+
+// Lazy load page-level components (code splitting: guests only need the home feed on first paint)
+const Login = lazy(() => import('./components/Login').then(m => ({ default: m.Login })));
+const Register = lazy(() => import('./components/Register').then(m => ({ default: m.Register })));
+const Settings = lazy(() => import('./components/Settings').then(m => ({ default: m.Settings })));
+const Explore = lazy(() => import('./components/Explore').then(m => ({ default: m.Explore })));
+const Notifications = lazy(() => import('./components/Notifications').then(m => ({ default: m.Notifications })));
+const Messages = lazy(() => import('./components/Messages').then(m => ({ default: m.Messages })));
+const Profile = lazy(() => import('./components/Profile').then(m => ({ default: m.Profile })));
+const SearchResults = lazy(() => import('./components/SearchResults').then(m => ({ default: m.SearchResults })));
+const OrderConfirmation = lazy(() => import('./components/OrderConfirmation').then(m => ({ default: m.OrderConfirmation })));
+const OrderList = lazy(() => import('./components/OrderList').then(m => ({ default: m.OrderList })));
 
 // Loading fallback
 const PageLoader = () => (
@@ -566,21 +567,25 @@ const AppWithMessages: React.FC<{ unreadCount: number }> = ({ unreadCount }) => 
     <div className="min-h-screen bg-white dark:bg-slate-900 text-black dark:text-white font-sans flex justify-center relative">
 
        {currentPage === 'login' && (
-         <Login
-           setRole={(r) => { setRole(r); setCurrentPage('home'); }}
-           onClose={() => setCurrentPage('home')}
-           onSwitchToRegister={() => setCurrentPage('register')}
-           lang={lang}
-         />
+         <Suspense fallback={<PageLoader />}>
+           <Login
+             setRole={(r) => { setRole(r); setCurrentPage('home'); }}
+             onClose={() => setCurrentPage('home')}
+             onSwitchToRegister={() => setCurrentPage('register')}
+             lang={lang}
+           />
+         </Suspense>
        )}
 
        {currentPage === 'register' && (
-         <Register
-           setRole={(r) => { setRole(r); setCurrentPage('home'); }}
-           onClose={() => setCurrentPage('home')}
-           onSwitchToLogin={() => setCurrentPage('login')}
-           lang={lang}
-         />
+         <Suspense fallback={<PageLoader />}>
+           <Register
+             setRole={(r) => { setRole(r); setCurrentPage('home'); }}
+             onClose={() => setCurrentPage('home')}
+             onSwitchToLogin={() => setCurrentPage('login')}
+             lang={lang}
+           />
+         </Suspense>
        )}
 
        {/* Mobile Drawer */}
@@ -693,18 +698,12 @@ const AppWithMessages: React.FC<{ unreadCount: number }> = ({ unreadCount }) => 
                 )}
              </div>
              
-             <AnimatePresence mode="wait">
-               <motion.div
-                 key={isSearchMode ? 'search_mode' : currentPage}
-                 initial={{ opacity: 0, y: 12 }}
-                 animate={{ opacity: 1, y: 0 }}
-                 exit={{ opacity: 0, y: -12 }}
-                 transition={{ duration: 0.2, ease: 'easeOut' }}
-                 className="w-full relative"
-               >
+             {/* 页面切换过渡用纯 CSS 动画（.page-transition，见 index.css），key 变化触发重新播放 */}
+             <div key={isSearchMode ? 'search_mode' : currentPage} className="page-transition w-full relative">
+               <Suspense fallback={<PageLoader />}>
                  {renderMainContent()}
-               </motion.div>
-             </AnimatePresence>
+               </Suspense>
+             </div>
           </main>
 
           {renderRightSidebar()}

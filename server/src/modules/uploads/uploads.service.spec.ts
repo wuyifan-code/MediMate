@@ -1,13 +1,18 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { UploadsService } from './uploads.service';
 import { PrismaService } from '../../prisma/prisma.service';
+import { BadRequestException, ForbiddenException } from '@nestjs/common';
 import * as fs from 'fs';
+import * as path from 'path';
 
 // Mock fs module
 jest.mock('fs', () => ({
   existsSync: jest.fn().mockReturnValue(true),
   mkdirSync: jest.fn(),
   unlinkSync: jest.fn(),
+  promises: {
+    unlink: jest.fn().mockResolvedValue(undefined),
+  },
 }));
 
 describe('UploadsService', () => {
@@ -17,9 +22,11 @@ describe('UploadsService', () => {
   const mockPrisma = {
     userProfile: {
       update: jest.fn(),
+      findFirst: jest.fn().mockResolvedValue(null),
     },
     escortProfile: {
       update: jest.fn(),
+      findFirst: jest.fn().mockResolvedValue(null),
     },
   };
 
@@ -121,22 +128,75 @@ describe('UploadsService', () => {
   });
 
   describe('deleteFile', () => {
-    it('should delete existing file', async () => {
-      (fs.existsSync as jest.Mock).mockReturnValueOnce(true);
+    it('should delete existing file for the owner', async () => {
+      (mockPrisma.userProfile.findFirst as jest.Mock).mockResolvedValueOnce({ userId: 'user_123' });
 
-      const result = await service.deleteFile('test_file.jpg');
+      const result = await service.deleteFile('test_file.jpg', { requesterId: 'user_123' });
 
       expect(result).toBe(true);
-      expect(fs.unlinkSync).toHaveBeenCalled();
+      expect(fs.promises.unlink).toHaveBeenCalledTimes(1);
+      expect(String((fs.promises.unlink as jest.Mock).mock.calls[0][0])).toMatch(
+        /uploads(.{1,2})test_file\.jpg$/,
+      );
     });
 
     it('should return false if file does not exist', async () => {
-      (fs.existsSync as jest.Mock).mockReturnValueOnce(false);
+      (mockPrisma.userProfile.findFirst as jest.Mock).mockResolvedValueOnce({ userId: 'user_123' });
+      (fs.promises.unlink as jest.Mock).mockRejectedValueOnce(
+        Object.assign(new Error('ENOENT'), { code: 'ENOENT' }),
+      );
 
-      const result = await service.deleteFile('nonexistent.jpg');
+      const result = await service.deleteFile('nonexistent.jpg', { requesterId: 'user_123' });
 
       expect(result).toBe(false);
-      expect(fs.unlinkSync).not.toHaveBeenCalled();
+    });
+
+    it('should neutralize path traversal attempts and stay inside upload root', async () => {
+      const uploadRoot = path.resolve('./uploads');
+
+      // Express 会先把 :param 中的 %2F 解码为 /，这里模拟解码后的真实输入；
+      // basename 净化后应只指向 uploads 根目录内的 package.json
+      await expect(
+        service.deleteFile(decodeURIComponent('..%2F..%2Fpackage.json'), {
+          requesterId: 'user_123',
+          isAdmin: true,
+        }),
+      ).resolves.toBe(true);
+      await expect(
+        service.deleteFile('..\\..\\package.json', { requesterId: 'user_123', isAdmin: true }),
+      ).resolves.toBe(true);
+
+      // 断言所有实际 unlink 的路径都被限制在 uploads 根目录内
+      const unlinkCalls = (fs.promises.unlink as jest.Mock).mock.calls.map(c => String(c[0]));
+      expect(unlinkCalls.length).toBeGreaterThanOrEqual(2);
+      for (const calledPath of unlinkCalls) {
+        expect(calledPath.startsWith(uploadRoot + path.sep)).toBe(true);
+        expect(calledPath.endsWith('package.json')).toBe(true);
+      }
+
+      await expect(service.deleteFile('..', { requesterId: 'user_123', isAdmin: true })).rejects.toThrow(
+        BadRequestException,
+      );
+      await expect(service.deleteFile('.', { requesterId: 'user_123', isAdmin: true })).rejects.toThrow(
+        BadRequestException,
+      );
+    });
+
+    it('should forbid deletion by a non-owner', async () => {
+      (mockPrisma.userProfile.findFirst as jest.Mock).mockResolvedValueOnce(null);
+      (mockPrisma.escortProfile.findFirst as jest.Mock).mockResolvedValueOnce(null);
+
+      await expect(
+        service.deleteFile('someone_elses.jpg', { requesterId: 'other_user' }),
+      ).rejects.toThrow(ForbiddenException);
+      expect(fs.promises.unlink).not.toHaveBeenCalled();
+    });
+
+    it('should allow admin to delete any file inside upload root', async () => {
+      const result = await service.deleteFile('anyone.jpg', { requesterId: 'admin_1', isAdmin: true });
+
+      expect(result).toBe(true);
+      expect(fs.promises.unlink).toHaveBeenCalledTimes(1);
     });
   });
 
