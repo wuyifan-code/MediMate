@@ -1,4 +1,4 @@
-import { Injectable, Logger, HttpException, HttpStatus } from '@nestjs/common';
+import { Injectable, Logger, HttpException, HttpStatus, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { createHash, randomBytes } from 'crypto';
 
@@ -33,10 +33,19 @@ export class DigitalEvidenceService {
    * 记录多模态存证打卡、执行算法验真并生成不可篡改的数据指纹
    * 引擎核心：算法驱动信任协议 (Algorithm-Driven Trust Protocol) 的数据落库总闸
    */
-  async submitEvidence(input: EvidenceInput) {
+  async submitEvidence(input: EvidenceInput, requesterId: string) {
     const { orderId, nodeName, type, url, content, metadata } = input;
 
     this.logger.log(`Executing Trust Protocol for order ${orderId}, node [${nodeName}]`);
+
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      select: { patientId: true, escortId: true, hospitalId: true },
+    });
+    if (!order) throw new NotFoundException('订单不存在');
+    if (order.patientId !== requesterId && order.escortId !== requesterId) {
+      throw new ForbiddenException('无权为此订单提交服务记录');
+    }
 
     // 1. 算法交叉验真拦截 (AI-Driven Multimodal Validation)
     const validationResult = await this.verifyEvidence(type, content, metadata);
@@ -48,11 +57,6 @@ export class DigitalEvidenceService {
     }
 
     // 获取订单信息以更新陪诊师
-    const order = await this.prisma.order.findUnique({
-      where: { id: orderId },
-      select: { escortId: true, hospitalId: true },
-    });
-
     // 更新订单状态为取证打卡中
     await this.prisma.order.update({
       where: { id: orderId },
@@ -60,7 +64,12 @@ export class DigitalEvidenceService {
     });
 
     // 2. 生成抗篡改数据指纹 (使用 SHA-256)
-    const evidenceHash = this.generateEvidenceHash(input);
+    const evidenceMetadata = {
+      ...(metadata || {}),
+      capturedAt: metadata?.capturedAt || new Date().toISOString(),
+      nonce: metadata?.nonce || randomBytes(16).toString('hex'),
+    };
+    const evidenceHash = this.generateEvidenceHash({ ...input, metadata: evidenceMetadata });
 
     // 3. 落库：完成信任底座资产沉淀
     const digitalAsset = await this.prisma.digitalEvidence.create({
@@ -73,7 +82,7 @@ export class DigitalEvidenceService {
         evidenceHash,
         verified: validationResult.passed,
         validationScore: validationResult.score || 0,
-        metadata,
+        metadata: evidenceMetadata,
       }
     });
 
@@ -95,7 +104,7 @@ export class DigitalEvidenceService {
     );
 
     return {
-      message: '多模态防伪存证上链成功',
+      message: '服务记录已保存，并生成完整性指纹',
       evidenceHash,
       validationScore: validationResult.score || 0,
       verified: validationResult.passed,
@@ -107,15 +116,13 @@ export class DigitalEvidenceService {
    * 使用 SHA-256 生成密码学哈希
    */
   private generateEvidenceHash(input: EvidenceInput): string {
-    const nonce = randomBytes(16).toString('hex');
     const rawData = JSON.stringify({
       orderId: input.orderId,
       nodeName: input.nodeName,
       type: input.type,
       url: input.url,
       content: input.content,
-      timestamp: Date.now(),
-      nonce,
+      metadata: input.metadata || {},
     });
 
     // 使用 SHA-256 生成真正的密码学哈希
@@ -138,7 +145,7 @@ export class DigitalEvidenceService {
       case 'emotion':
         return this.verifyEmotion(content || '', metadata);
       default:
-        return { passed: true, reason: '未知类型，直接通过' };
+        return { passed: false, reason: `不支持的存证类型：${type}` };
     }
   }
 
@@ -159,9 +166,7 @@ export class DigitalEvidenceService {
     });
 
     if (!order?.hospital) {
-      // 无医院信息，跳过距离验证
-      this.logger.warn(`[Trust] No hospital found for order ${orderId}, skipping GPS distance validation`);
-      return { passed: true, reason: 'GPS 打卡成功', score: 80 };
+      return { passed: false, reason: '无法验证：订单没有关联医院坐标', score: 0 };
     }
 
     // 医院坐标（假设医院表有 latitude/longitude 字段，这里做兼容处理）
@@ -169,8 +174,7 @@ export class DigitalEvidenceService {
     const hospitalLng = (order.hospital as any).longitude || 0;
 
     if (hospitalLat === 0 && hospitalLng === 0) {
-      // 医院无坐标，跳过验证
-      return { passed: true, reason: 'GPS 打卡成功', score: 80 };
+      return { passed: false, reason: '无法验证：医院坐标尚未配置', score: 0 };
     }
 
     // 计算距离
@@ -292,7 +296,8 @@ export class DigitalEvidenceService {
   /**
    * 获取订单的存证列表
    */
-  async getEvidencesByOrder(orderId: string) {
+  async getEvidencesByOrder(orderId: string, requesterId: string) {
+    await this.assertOrderAccess(orderId, requesterId);
     return this.prisma.digitalEvidence.findMany({
       where: { orderId },
       orderBy: { createdAt: 'desc' },
@@ -302,22 +307,27 @@ export class DigitalEvidenceService {
   /**
    * 验证存证哈希
    */
-  async verifyEvidenceHash(evidenceId: string) {
+  async verifyEvidenceHash(evidenceId: string, requesterId: string) {
     const evidence = await this.prisma.digitalEvidence.findUnique({
       where: { id: evidenceId },
+      include: { order: { select: { patientId: true, escortId: true } } },
     });
 
     if (!evidence) {
       return { valid: false, reason: '存证不存在' };
     }
+    if (evidence.order.patientId !== requesterId && evidence.order.escortId !== requesterId) {
+      throw new ForbiddenException('无权验证此服务记录');
+    }
 
-    // 重新计算哈希进行比对
+    // 使用提交时保存的 canonical 字段重新计算，避免重新生成时间和随机数。
     const input: EvidenceInput = {
       orderId: evidence.orderId,
       nodeName: evidence.nodeName,
       type: evidence.type,
       url: evidence.url || undefined,
       content: evidence.content || undefined,
+      metadata: evidence.metadata || undefined,
     };
 
     const computedHash = this.generateEvidenceHash(input);
@@ -327,5 +337,16 @@ export class DigitalEvidenceService {
       valid: computedHash === evidence.evidenceHash,
       reason: computedHash === evidence.evidenceHash ? '哈希验证通过' : '哈希不匹配',
     };
+  }
+
+  private async assertOrderAccess(orderId: string, requesterId: string) {
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      select: { patientId: true, escortId: true },
+    });
+    if (!order) throw new NotFoundException('订单不存在');
+    if (order.patientId !== requesterId && order.escortId !== requesterId) {
+      throw new ForbiddenException('无权查看此服务记录');
+    }
   }
 }

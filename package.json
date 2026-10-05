@@ -7,6 +7,8 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "typecheck": "tsc --noEmit",
+    "contest:verify": "npm run build && npm run typecheck && npm --prefix server run build && npm --prefix server exec tsc -- -p tsconfig.json --noEmit && npm --prefix server test -- --runInBand",
     "preview": "vite preview",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives",
     "format": "prettier --write \"**/*.{ts,tsx,css,md,json}\""

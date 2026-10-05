@@ -1,6 +1,7 @@
 import React, { useState, useRef } from 'react';
 import { apiService } from '../services/apiService';
 import { Camera, Mic, MapPin, Heart, Upload, Loader2, CheckCircle } from 'lucide-react';
+import { getToken } from '../services/baseApiClient';
 
 interface EvidenceCollectorProps {
   orderId: string;
@@ -25,6 +26,22 @@ const EMOTIONS = [
   { key: 'sad', label: '难过', emoji: '😢' },
   { key: 'neutral', label: '一般', emoji: '😐' },
 ];
+
+const readAudioDuration = (file: File): Promise<number | null> =>
+  new Promise((resolve) => {
+    const audio = document.createElement('audio');
+    const objectUrl = URL.createObjectURL(file);
+    audio.preload = 'metadata';
+    audio.onloadedmetadata = () => {
+      URL.revokeObjectURL(objectUrl);
+      resolve(Number.isFinite(audio.duration) ? audio.duration : null);
+    };
+    audio.onerror = () => {
+      URL.revokeObjectURL(objectUrl);
+      resolve(null);
+    };
+    audio.src = objectUrl;
+  });
 
 export default function EvidenceCollector({ orderId, currentPathNode, onSuccess }: EvidenceCollectorProps) {
   const [evidenceType, setEvidenceType] = useState('photo');
@@ -99,7 +116,7 @@ export default function EvidenceCollector({ orderId, currentPathNode, onSuccess 
         const uploadResponse = await fetch('/api/uploads/file', {
           method: 'POST',
           headers: {
-            'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
+            'Authorization': `Bearer ${getToken() || ''}`,
           },
           body: formData,
         });
@@ -121,8 +138,9 @@ export default function EvidenceCollector({ orderId, currentPathNode, onSuccess 
         };
 
         if (evidenceType === 'audio') {
-          // For audio, we would need duration - simplified here
-          metadata.duration = 10; // Mock
+          const duration = await readAudioDuration(selectedFile);
+          if (duration === null) throw new Error('无法读取音频时长，请更换文件后重试');
+          metadata.duration = Math.round(duration * 10) / 10;
         }
       } else if (evidenceType === 'gps') {
         if (!gpsLocation) {

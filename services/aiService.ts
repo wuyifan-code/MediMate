@@ -1,7 +1,7 @@
 import axios from 'axios';
 
 const aiClient = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || 'http://localhost:3001/api',
+  baseURL: import.meta.env.VITE_API_URL || (import.meta.env.DEV ? 'http://localhost:3001/api' : '/api'),
   timeout: 20000,
   headers: {
     'Content-Type': 'application/json; charset=utf-8',
@@ -15,7 +15,7 @@ const aiClient = axios.create({
 
 // Attach JWT token to all AI requests
 aiClient.interceptors.request.use((config) => {
-  const token = localStorage.getItem('token');
+  const token = localStorage.getItem('medimate_access_token');
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
   }

@@ -2,20 +2,18 @@
 <img width="1200" height="475" alt="MediMate Banner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
 </div>
 
-# 基于多模态数据协同的智慧医疗陪护全流程管理系统
+# MediMate 医伴：面向异地就医家庭的可解释陪诊匹配与可信协作系统
 
-不再是简单的劳务撮合平台，而是**面向空巢老人的医疗触达辅助决策引擎**。
-重点突破算法驱动的智能系统、多模态存证协议以及叙事医学的人文关怀。
+当子女无法陪在身边时，MediMate 帮助家属完成陪诊需求整理、服务匹配、节点记录、进度查看和陪诊纪要回溯。
 
-## 核心创新特性 (Core Innovations)
+## 核心能力
 
-- **AI 驱动的知识图谱预案 (Intelligent Pathways)** - 通过 MiniMax 大语言模型自动生成结构化的导诊与陪护路径图。
-- **数字信用资产存证 (Digital Evidence Protocol)** - 利用手机传感器与多模态分析，沉淀整个陪护过程的信任画像，解决职业信任黑箱。
-- **叙事医学引擎 (Narrative Medicine Engine)** - 用 AI 为患者家属提炼带有情绪价值和抚慰感的康复备忘录。
-- **贵州模式赋能 (Regional Transit Model)** - 专为山地地形设计的城乡医疗接力接驳支持，助力分级诊疗。
-- **Android & Web跨端 (Mobile Ready)** - 借助 Capacitor 实现端到端覆盖。
+- **可解释的多维陪诊匹配**：在档期、预算等硬约束后，综合专长、距离、信任、经验和负载，展示推荐理由与限制。
+- **节点化的过程记录**：服务拆成可追踪节点，证据绑定到具体订单和节点，并生成可复算的完整性指纹。
+- **证据驱动的家属纪要**：模型负责组织已有记录，信息不足时明确提示，不替医疗专业人员做诊断。
+- **跨端基础**：提供响应式 Web 页面，并保留 Capacitor 移动端构建能力。
 
-算法设计、公式、审计结论与验证边界见 [MDWMA v5 研究与设计说明](docs/MDWMA_V5_RESEARCH_AND_DESIGN.md)。
+比赛定位、AI 使用披露、隐私边界、演示脚本和测试报告见 [docs/contest](docs/contest/README.md)。
 
 ## Tech Stack
 
@@ -76,8 +74,16 @@ This repo expects:
    ```bash
    cd ..
    npm install
-   npm run dev
-   ```
+npm run dev
+```
+
+### 比赛版本检查
+
+```bash
+npm run contest:verify
+```
+
+该命令会依次检查前端构建、前端类型、后端构建、后端类型和后端测试。
 
 ### Access Points
 
@@ -136,7 +142,10 @@ FRONTEND_URL=http://localhost:3000
 **Client (.env):**
 ```env
 VITE_API_URL=http://localhost:3001/api
+VITE_WS_URL=ws://localhost:3001/chat
 ```
+
+生产环境必须将 `VITE_API_URL` 设置为正式 HTTPS API 地址，不能依赖访问者电脑的 localhost。
 
 ## License
 

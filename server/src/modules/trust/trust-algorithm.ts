@@ -50,7 +50,7 @@ export class TrustAlgorithm {
     }
 
     // 1. 订单完成率 (20%)
-    const completionRate = this.calculateCompletionRate(escortId);
+    const completionRate = await this.calculateCompletionRate(escortId);
 
     // 2. 存证覆盖率 (25%)
     const evidenceCoverage = await this.calculateEvidenceCoverage(escortId);
@@ -89,10 +89,15 @@ export class TrustAlgorithm {
    * 计算订单完成率
    * completedOrders / totalOrders
    */
-  private calculateCompletionRate(escortId: string): number {
-    // 暂时返回基于已完成订单数的基准分
-    // 后续可扩展为查询订单表计算真实完成率
-    return Math.min(100, 60 + Math.min(40, Math.random() * 20)); // 模拟值
+  private async calculateCompletionRate(escortId: string): Promise<number> {
+    const [total, completed] = await Promise.all([
+      this.prisma.order.count({ where: { escortId } }),
+      this.prisma.order.count({ where: { escortId, status: 'COMPLETED' } }),
+    ]);
+
+    // 没有订单时明确表示数据不足，避免用随机或虚构分数装饰冷启动结果。
+    if (total === 0) return 0;
+    return Math.round((completed / total) * 10000) / 100;
   }
 
   /**

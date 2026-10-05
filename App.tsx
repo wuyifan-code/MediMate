@@ -18,6 +18,7 @@ import { Search, MoreHorizontal, Mail, FileText, Home, Plus, X, Settings as Sett
 import { apiService } from './services/apiService';
 import { ThemeProvider } from './contexts/ThemeContext';
 import { MessageProvider, useMessages } from './contexts/MessageContext';
+import { GuestHome } from './components/home/GuestHome';
 
 // Lazy load heavy components
 const PatientDashboard = lazy(() => import('./components/PatientDashboard').then(m => ({ default: m.PatientDashboard })));
@@ -419,6 +420,26 @@ const AppWithMessages: React.FC<{ unreadCount: number }> = ({ unreadCount }) => 
       case UserRole.ESCORT:
         return <Suspense fallback={<PageLoader />}><EscortDashboard lang={lang} user={user} /></Suspense>;
       default:
+        return (
+          <>
+            <div className="mx-4 mt-4 rounded-2xl border border-teal-200 bg-teal-50 px-4 py-3 text-sm text-teal-900 dark:border-teal-900 dark:bg-teal-950/40 dark:text-teal-100">
+              <strong>赛事演示环境</strong> · 页面数据为合成数据，演示服务流程与记录校验能力。
+            </div>
+            <GuestHome
+              lang={lang}
+              role={role}
+              user={user}
+              popularHospitals={popularHospitals}
+              popularEscorts={popularEscorts}
+              onSearch={handleSearch}
+              onNavigate={(path) => setCurrentPage(path as PageType)}
+              onOpenServiceSheet={() => role === UserRole.GUEST ? setCurrentPage('login') : setShowOrderModal(true)}
+              onOpenAI={() => handleSearch('AI 医疗流程问答', 'web')}
+              onStartConversation={handleStartConversation}
+              onOpenLogin={() => setCurrentPage('login')}
+            />
+          </>
+        );
         // Guest View Feed - Styled like tweets but content is promotional
         return (
           <div className="divide-y divide-slate-100">

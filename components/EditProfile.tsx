@@ -146,7 +146,8 @@ export const EditProfile: React.FC<EditProfileProps> = ({
       const formDataUpload = new FormData();
       formDataUpload.append('file', avatarFile);
 
-      const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001/api'}/uploads/avatar`, {
+      const apiBaseUrl = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? 'http://localhost:3001/api' : '/api');
+      const response = await fetch(`${apiBaseUrl}/uploads/avatar`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('medimate_access_token')}`

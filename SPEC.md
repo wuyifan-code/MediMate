@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-**MediMate** is a medical escort service platform connecting patients with professional escort services.
+**MediMate** is a medical escort coordination platform for families who cannot accompany relatives in person. It covers explainable matching, node-based service records, family progress viewing, and evidence-grounded service memos.
 
 ## Architecture
 
@@ -129,7 +129,7 @@ FRONTEND_URL=http://localhost:3000
 **Client (.env):**
 ```
 VITE_API_URL=http://localhost:3001/api
-VITE_GEMINI_API_KEY=your-gemini-key
+VITE_WS_URL=ws://localhost:3001/chat
 ```
 
 ## Security Considerations
