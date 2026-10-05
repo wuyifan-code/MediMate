@@ -70,8 +70,12 @@ export class OrdersService {
 
       const matchResult = await this.matchingService.matchEscorts({
         department,
+        hospitalId: dto.hospitalId,
         budget: dto.price,
         serviceType: dto.serviceType,
+        appointmentDate: dto.appointmentDate,
+        appointmentTime: dto.appointmentTime,
+        durationHours: dto.duration,
         topK: 1,
       });
 
@@ -206,10 +210,14 @@ export class OrdersService {
 
     return this.matchingService.matchEscorts({
       department,
+      hospitalId: dto.hospitalId,
       latitude: dto.latitude,
       longitude: dto.longitude,
       budget: dto.budget,
       serviceType: dto.serviceType,
+      appointmentDate: dto.appointmentDate,
+      appointmentTime: dto.appointmentTime,
+      durationHours: dto.duration,
       topK: dto.topK || 5,
     });
   }

@@ -1,5 +1,5 @@
 import React from 'react';
-import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
+import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { RouteMeta } from '../../src/routes/routeMeta';
 
 interface AppShellProps {

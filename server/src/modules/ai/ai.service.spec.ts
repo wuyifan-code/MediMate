@@ -158,7 +158,9 @@ describe('AiService', () => {
       expect(callArgs).toHaveLength(3);
       expect(callArgs[0]).toEqual({ role: 'user', content: 'First question' });
       expect(callArgs[1]).toEqual({ role: 'model', content: 'First answer' });
-      expect(callArgs[2]).toEqual({ role: 'user', content: 'Follow up question' });
+      // 新用户消息会被服务端附加无思考标签的格式要求，只校验原始 prompt 是否包含
+      expect(callArgs[2].role).toBe('user');
+      expect(callArgs[2].content).toContain('Follow up question');
     });
 
     it('should handle empty history', async () => {
@@ -173,7 +175,8 @@ describe('AiService', () => {
 
       // Should have only 1 message (the new prompt)
       expect(callArgs).toHaveLength(1);
-      expect(callArgs[0]).toEqual({ role: 'user', content: 'First question' });
+      expect(callArgs[0].role).toBe('user');
+      expect(callArgs[0].content).toContain('First question');
     });
   });
 

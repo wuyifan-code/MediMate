@@ -11,7 +11,7 @@
  *   wⱼ 为由 AHP 层次分析法确定的维度权重 (Σwⱼ = 1)。
  *
  * 七个评分维度：
- *   f₁ - 科室匹配度 (Specialty Match)      : Jaccard 相似度 + 模糊匹配
+ *   f₁ - 科室匹配度 (Specialty Match)      : 精确匹配 + 科室层级 + 包含关系
  *   f₂ - 地理邻近度 (Geographic Proximity)  : 高斯距离衰减函数
  *   f₃ - 信任评分   (Trust Score)           : 信任协议输出归一化
  *   f₄ - 服务质量   (Service Quality)       : 用户评分归一化
@@ -19,7 +19,7 @@
  *   f₆ - 价格适配度 (Price Affordability)   : 预算偏差惩罚函数
  *   f₇ - 负载均衡度 (Load Balance)          : 活跃订单倒数衰减
  *
- * AHP 权重向量 (幂法求解, CR = 0.0041 < 0.1)：
+ * AHP 权重向量 (幂法求解, CR ≈ 0.0112 < 0.1)：
  *   W = (0.3158, 0.1970, 0.1970, 0.1208, 0.0754, 0.0471, 0.0471)
  *
  * @module MatchingAlgorithm
@@ -39,8 +39,35 @@ export interface MatchingRequest {
   budget?: number;
   /** 服务类型 */
   serviceType?: string;
+  /** 目标医院 ID，用于发布服务覆盖范围硬约束 */
+  hospitalId?: string;
   /** 预约日期 (ISO 字符串) */
   appointmentDate?: string;
+  /** 预约时间 (HH:mm)，用于服务时段硬约束 */
+  appointmentTime?: string;
+  /** 预计服务时长（小时），用于完整区间冲突检查；默认 1 小时 */
+  durationHours?: number;
+}
+
+/** 陪诊师已发布服务的可用性信息 */
+export interface EscortAvailability {
+  serviceId?: string;
+  serviceType: string;
+  pricePerHour?: number;
+  /** 空数组表示不限制医院 */
+  hospitalIds?: string[];
+  /** 服务有效日期，ISO 日期字符串 */
+  startDate: string;
+  endDate: string;
+  /** 1=周一 ... 7=周日 */
+  availableWeekdays: number[];
+  /** 可服务时间段 */
+  timeSlots?: { start: string; end: string }[];
+  /** 请求日期当天已被占用的时间段 */
+  bookedTimeSlots?: { start: string; end: string }[];
+  /** 请求日期当天已有预约数 */
+  bookingsOnDate?: number;
+  maxDailyOrders: number;
 }
 
 /** 候选陪诊师特征向量 */
@@ -69,6 +96,14 @@ export interface EscortFeatureVector {
   bio?: string | null;
   /** 是否已认证 */
   isVerified: boolean;
+  /**
+   * 已发布的可用服务。undefined 表示平台尚无足够可用性数据，
+   * 空数组表示已有服务数据但该陪诊师当前没有可用服务。
+   */
+  availableServices?: EscortAvailability[];
+  /** 通过可用性约束后实际用于定价的服务 */
+  matchedServiceId?: string;
+  matchedServiceType?: string;
 }
 
 /** 单维度评分结果 */
@@ -113,6 +148,17 @@ export interface MatchingResult {
   trustScore: number;
   /** 距离 (km)，如有 */
   distanceKm?: number | null;
+  /** 现行 MDWMA 鲁棒组合权重下的加权效用分 */
+  utilityScore?: number;
+  /** 五路方法共识分 */
+  consensusScore?: number;
+  /** 权重扰动下获得第一名的概率 */
+  rankConfidence?: number;
+  /** Pareto 非支配层，0 为第一前沿 */
+  paretoLayer?: number;
+  /** 实际参与本次匹配的已发布服务 */
+  matchedServiceId?: string;
+  matchedServiceType?: string;
 }
 
 // ==================== AHP 层次分析法计算引擎 ====================
@@ -548,6 +594,172 @@ export class GameTheoreticWeighting {
   }
 }
 
+// ==================== 现行 MDWMA 样本充分度自适应赋权 ====================
+
+export interface RobustWeightingResult {
+  /** 最终准则权重 */
+  weights: number[];
+  /** 各来源权重向量的组合系数，顺序与 sourceNames 一致 */
+  methodCoefficients: number[];
+  sourceNames: string[];
+  /** n/(n+κm)，用于控制客观权重在小样本下的影响 */
+  dataAdequacy: number;
+  /** 样本充分度中的先验强度 κ，默认 2 */
+  adequacyPriorStrength: number;
+  /** 来源权重向量间余弦相似度 */
+  pairwiseCosine: number[][];
+  /** 单一准则权重上限 */
+  criterionCap: number;
+  warnings: string[];
+}
+
+/**
+ * 小样本鲁棒自适应赋权。
+ *
+ * 医疗陪诊平台冷启动阶段常见 n << m。此时 EWM/CRITIC 会把偶然离散度
+ * 误当成稳定信息。算法用 n/(n+κm) 控制数据驱动权重的总份额，并为每个
+ * 权重来源保留最小份额；最后限制单一准则的最大权重，避免一次小样本
+ * 波动支配全部排序。κ 默认取 2，并作为可审计设计参数开放给离线敏感性
+ * 分析；线上默认值保持不变。
+ */
+export class RobustAdaptiveWeighting {
+  private static normalize(values: number[]): number[] {
+    const clean = values.map(v => Number.isFinite(v) && v > 0 ? v : 0);
+    const sum = clean.reduce((a, b) => a + b, 0);
+    return sum > 0 ? clean.map(v => v / sum) : new Array(values.length).fill(1 / values.length);
+  }
+
+  private static cosine(a: number[], b: number[]): number {
+    const dot = a.reduce((sum, value, i) => sum + value * b[i], 0);
+    const normA = Math.sqrt(a.reduce((sum, value) => sum + value * value, 0));
+    const normB = Math.sqrt(b.reduce((sum, value) => sum + value * value, 0));
+    return normA > 0 && normB > 0 ? Math.max(0, Math.min(1, dot / (normA * normB))) : 0;
+  }
+
+  private static capAndRedistribute(values: number[], cap: number): number[] {
+    const result = RobustAdaptiveWeighting.normalize(values);
+
+    for (let iteration = 0; iteration < result.length + 2; iteration++) {
+      const capped = result.map(value => value > cap);
+      if (!capped.some(Boolean)) break;
+
+      let excess = 0;
+      for (let i = 0; i < result.length; i++) {
+        if (capped[i]) {
+          excess += result[i] - cap;
+          result[i] = cap;
+        }
+      }
+
+      const free = result.map((_, i) => i).filter(i => !capped[i]);
+      if (free.length === 0) break;
+      const freeSum = free.reduce((sum, i) => sum + result[i], 0);
+      for (const i of free) {
+        result[i] += freeSum > 0 ? excess * (result[i] / freeSum) : excess / free.length;
+      }
+    }
+
+    return RobustAdaptiveWeighting.normalize(result);
+  }
+
+  static solve(
+    weightVectors: number[][],
+    sampleSize: number,
+    options: {
+      sourceNames?: string[];
+      methodFloor?: number;
+      criterionCap?: number;
+      adequacyPriorStrength?: number;
+    } = {},
+  ): RobustWeightingResult {
+    const requestedPriorStrength = options.adequacyPriorStrength ?? 2;
+    const adequacyPriorStrength = Number.isFinite(requestedPriorStrength)
+      ? Math.max(0.01, requestedPriorStrength)
+      : 2;
+    if (weightVectors.length === 0 || weightVectors[0].length === 0) {
+      return {
+        weights: [], methodCoefficients: [], sourceNames: [], dataAdequacy: 0,
+        adequacyPriorStrength,
+        pairwiseCosine: [], criterionCap: options.criterionCap ?? 0.45,
+        warnings: ['没有可用于组合的权重向量'],
+      };
+    }
+
+    const vectors = weightVectors.map(v => RobustAdaptiveWeighting.normalize(v));
+    const k = vectors.length;
+    const m = vectors[0].length;
+    const sourceNames = options.sourceNames || vectors.map((_, i) => `W${i + 1}`);
+    const criterionCap = Math.max(1 / m, Math.min(1, options.criterionCap ?? 0.45));
+    const dataAdequacy = Math.max(
+      0,
+      Math.min(1, sampleSize / (sampleSize + adequacyPriorStrength * m)),
+    );
+
+    const pairwiseCosine = vectors.map(a => vectors.map(b =>
+      Math.round(RobustAdaptiveWeighting.cosine(a, b) * 10000) / 10000,
+    ));
+
+    let methodCoefficients: number[];
+    if (k === 1) {
+      methodCoefficients = [1];
+    } else {
+      const methodFloor = Math.max(0, Math.min(options.methodFloor ?? 0.1, 0.99 / k));
+      const remaining = 1 - methodFloor * k;
+      const objectiveAgreement = vectors.slice(1).map((_, offset) => {
+        const index = offset + 1;
+        const similarities = pairwiseCosine[index].filter((__, j) => j !== index);
+        return Math.max(0.05, similarities.reduce((a, b) => a + b, 0) / similarities.length);
+      });
+      const agreementSum = objectiveAgreement.reduce((a, b) => a + b, 0);
+
+      methodCoefficients = new Array(k).fill(methodFloor);
+      methodCoefficients[0] += remaining * (1 - dataAdequacy);
+      for (let i = 1; i < k; i++) {
+        const share = agreementSum > 0 ? objectiveAgreement[i - 1] / agreementSum : 1 / (k - 1);
+        methodCoefficients[i] += remaining * dataAdequacy * share;
+      }
+      methodCoefficients = RobustAdaptiveWeighting.normalize(methodCoefficients);
+    }
+
+    const rawWeights = new Array(m).fill(0);
+    for (let i = 0; i < k; i++) {
+      for (let j = 0; j < m; j++) rawWeights[j] += methodCoefficients[i] * vectors[i][j];
+    }
+    const cappedWeights = RobustAdaptiveWeighting.capAndRedistribute(rawWeights, criterionCap);
+    const weights = RobustAdaptiveWeighting.normalize(
+      cappedWeights.map(value => Math.round(value * 1e8) / 1e8),
+    );
+
+    const warnings: string[] = [];
+    const adequacyReferenceSize = adequacyPriorStrength * m;
+    if (sampleSize < adequacyReferenceSize) {
+      warnings.push(
+        `候选样本量 ${sampleSize} 小于 κ×维度数 ${Math.round(adequacyReferenceSize * 1000) / 1000}`
+        + `（κ=${Math.round(adequacyPriorStrength * 1000) / 1000}），已收缩客观权重影响`,
+      );
+    }
+    if (Math.max(...rawWeights) > criterionCap) {
+      warnings.push(`单一准则原始权重超过 ${criterionCap}，已执行上限约束与再分配`);
+    }
+    const offDiagonal = pairwiseCosine.flatMap((row, i) => row.filter((_, j) => i !== j));
+    const meanAgreement = offDiagonal.length > 0
+      ? offDiagonal.reduce((a, b) => a + b, 0) / offDiagonal.length
+      : 1;
+    if (meanAgreement < 0.75) warnings.push('赋权方法间一致性偏低，建议关注不确定性结果');
+
+    return {
+      weights,
+      methodCoefficients: methodCoefficients.map(value => Math.round(value * 1e6) / 1e6),
+      sourceNames,
+      dataAdequacy: Math.round(dataAdequacy * 1e6) / 1e6,
+      adequacyPriorStrength: Math.round(adequacyPriorStrength * 1e6) / 1e6,
+      pairwiseCosine,
+      criterionCap,
+      warnings,
+    };
+  }
+}
+
 // ==================== TOPSIS 逼近理想解排序 ====================
 
 /** TOPSIS 排序结果 */
@@ -821,6 +1033,135 @@ export class RankAggregation {
   }
 }
 
+export interface RobustRankAggregationResult extends RankAggregationResult {
+  /** 根据方法间 Kendall 一致性得到的方法权重 */
+  methodWeights: number[];
+  /** 方法间 Kendall τ 矩阵 */
+  agreementMatrix: number[][];
+  /** 归一化共识分 [0,1] */
+  consensusScores: number[];
+  /** 最终排序与各输入排序的一致性 [0,1] */
+  consensusIndex: number;
+}
+
+/**
+ * 现行 MDWMA 鲁棒排名聚合：先按方法间的一致性确定可靠度，再执行加权
+ * Borda-Copeland 聚合。每种方法都保留正权重，避免单一路径独占结论。
+ */
+export class RobustRankAggregation {
+  private static kendallTau(a: number[], b: number[]): number {
+    if (a.length <= 1) return 1;
+    const posA = new Map(a.map((value, index) => [value, index]));
+    const posB = new Map(b.map((value, index) => [value, index]));
+    let concordant = 0;
+    let discordant = 0;
+
+    for (let i = 0; i < a.length; i++) {
+      for (let j = i + 1; j < a.length; j++) {
+        const x = a[i];
+        const y = a[j];
+        const signA = (posA.get(x) || 0) - (posA.get(y) || 0);
+        const signB = (posB.get(x) || 0) - (posB.get(y) || 0);
+        if (signA * signB > 0) concordant++;
+        else discordant++;
+      }
+    }
+
+    const total = concordant + discordant;
+    return total > 0 ? (concordant - discordant) / total : 1;
+  }
+
+  static solve(rankings: number[][], methodNames: string[] = []): RobustRankAggregationResult {
+    if (rankings.length === 0 || rankings[0].length === 0) {
+      return {
+        bordaScores: [], copelandScores: [], finalRanking: [], inputRankings: rankings,
+        methodNames, methodWeights: [], agreementMatrix: [], consensusScores: [], consensusIndex: 0,
+      };
+    }
+
+    const n = rankings[0].length;
+    const k = rankings.length;
+    const agreementMatrix = rankings.map(a => rankings.map(b =>
+      Math.round(RobustRankAggregation.kendallTau(a, b) * 10000) / 10000,
+    ));
+
+    const rawReliability = agreementMatrix.map((row, i) => {
+      if (k === 1) return 1;
+      const meanAgreement = row
+        .filter((_, j) => j !== i)
+        .reduce((sum, tau) => sum + (tau + 1) / 2, 0) / (k - 1);
+      return 0.25 + Math.max(0, meanAgreement);
+    });
+    const reliabilitySum = rawReliability.reduce((a, b) => a + b, 0);
+    const methodWeights = rawReliability.map(value => value / reliabilitySum);
+
+    const positions = rankings.map(ranking => {
+      const pos = new Array(n).fill(0);
+      ranking.forEach((candidate, rank) => { pos[candidate] = rank; });
+      return pos;
+    });
+
+    const bordaScores = new Array(n).fill(0);
+    for (let method = 0; method < k; method++) {
+      rankings[method].forEach((candidate, rank) => {
+        bordaScores[candidate] += methodWeights[method] * (n - 1 - rank);
+      });
+    }
+
+    const copelandScores = new Array(n).fill(0);
+    for (let a = 0; a < n; a++) {
+      for (let b = a + 1; b < n; b++) {
+        let supportA = 0;
+        for (let method = 0; method < k; method++) {
+          if (positions[method][a] < positions[method][b]) supportA += methodWeights[method];
+        }
+        if (supportA > 0.5 + 1e-12) {
+          copelandScores[a]++;
+          copelandScores[b]--;
+        } else if (supportA < 0.5 - 1e-12) {
+          copelandScores[a]--;
+          copelandScores[b]++;
+        }
+      }
+    }
+
+    const consensusScores = new Array(n).fill(1);
+    if (n > 1) {
+      for (let i = 0; i < n; i++) {
+        const borda = bordaScores[i] / (n - 1);
+        const copeland = (copelandScores[i] + (n - 1)) / (2 * (n - 1));
+        consensusScores[i] = 0.7 * borda + 0.3 * copeland;
+      }
+    }
+
+    const finalRanking = Array.from({ length: n }, (_, i) => i).sort((a, b) =>
+      consensusScores[b] - consensusScores[a]
+      || bordaScores[b] - bordaScores[a]
+      || a - b,
+    );
+
+    const agreementWithFinal = rankings.map(ranking =>
+      (RobustRankAggregation.kendallTau(finalRanking, ranking) + 1) / 2,
+    );
+    const consensusIndex = agreementWithFinal.reduce(
+      (sum, agreement, i) => sum + agreement * methodWeights[i],
+      0,
+    );
+
+    return {
+      bordaScores: bordaScores.map(value => Math.round(value * 1e6) / 1e6),
+      copelandScores,
+      finalRanking,
+      inputRankings: rankings,
+      methodNames,
+      methodWeights: methodWeights.map(value => Math.round(value * 1e6) / 1e6),
+      agreementMatrix,
+      consensusScores: consensusScores.map(value => Math.round(value * 1e6) / 1e6),
+      consensusIndex: Math.round(consensusIndex * 1e6) / 1e6,
+    };
+  }
+}
+
 // ==================== Shapley Value 维度贡献分解 ====================
 
 /**
@@ -841,10 +1182,18 @@ export interface ShapleyResult {
   shapleyValues: number[];
   /** 各维度贡献占比 (归一化) */
   contributionRatio: number[];
+  /** 各维度绝对贡献占比，和为 1 */
+  absoluteContributionRatio: number[];
   /** 维度标签 */
   dimensions: string[];
   /** 总价值 v(N) */
   grandCoalitionValue: number;
+  /** 基线效用与候选预测效用 */
+  baseValue: number;
+  predictionValue: number;
+  baselineValues: number[];
+  /** prediction - (base + Σφ)，应接近 0 */
+  residual: number;
 }
 
 export class ShapleyValue {
@@ -858,16 +1207,29 @@ export class ShapleyValue {
    * @param matrix 决策矩阵 (n×7)
    * @param weights 组合权重向量
    * @param targetRow 目标候选行索引 (计算该候选的维度贡献分解)
+   * @param baselineMode zero 保持 v4 的绝对贡献；mean 解释相对候选群体均值的正负贡献
    */
-  static solve(matrix: number[][], weights: number[], targetRow: number = 0): ShapleyResult {
+  static solve(
+    matrix: number[][],
+    weights: number[],
+    targetRow: number = 0,
+    baselineMode: 'zero' | 'mean' = 'zero',
+  ): ShapleyResult {
     const n = weights.length; // 7 个维度
-    const x = matrix[targetRow]; // 目标候选的各维度得分
+    const x = matrix[targetRow] || new Array(n).fill(0); // 目标候选的各维度得分
+    const baselineValues = new Array(n).fill(0);
+    if (baselineMode === 'mean' && matrix.length > 0) {
+      for (let j = 0; j < n; j++) {
+        baselineValues[j] = matrix.reduce((sum, row) => sum + (row[j] || 0), 0) / matrix.length;
+      }
+    }
+    const centered = x.map((value, j) => value - baselineValues[j]);
 
-    // 价值函数: v(S) = Σ_{j∈S} wⱼ × xⱼ (加权求和)
+    // 价值函数: v(S) = Σ_{j∈S} wⱼ × (xⱼ-baselineⱼ)
     const valueFunction = (coalition: boolean[]): number => {
       let v = 0;
       for (let j = 0; j < n; j++) {
-        if (coalition[j]) v += weights[j] * x[j];
+        if (coalition[j]) v += weights[j] * centered[j];
       }
       return v;
     };
@@ -914,12 +1276,23 @@ export class ShapleyValue {
     const contributionRatio = shapleyValues.map(v =>
       absSum > 0 ? Math.round((v / absSum) * 10000) / 10000 : 0,
     );
+    const absoluteContributionRatio = shapleyValues.map(v =>
+      absSum > 0 ? Math.round((Math.abs(v) / absSum) * 10000) / 10000 : 0,
+    );
+    const baseValue = baselineValues.reduce((sum, value, j) => sum + value * weights[j], 0);
+    const predictionValue = x.reduce((sum, value, j) => sum + value * weights[j], 0);
+    const reconstructed = baseValue + shapleyValues.reduce((a, b) => a + b, 0);
 
     return {
       shapleyValues,
       contributionRatio,
+      absoluteContributionRatio,
       dimensions: ShapleyValue.DIM_LABELS,
       grandCoalitionValue: Math.round(grandCoalitionValue * 10000) / 10000,
+      baseValue: Math.round(baseValue * 10000) / 10000,
+      predictionValue: Math.round(predictionValue * 10000) / 10000,
+      baselineValues: baselineValues.map(value => Math.round(value * 10000) / 10000),
+      residual: Math.round((predictionValue - reconstructed) * 1e8) / 1e8,
     };
   }
 
@@ -929,6 +1302,19 @@ export class ShapleyValue {
   static solveGroup(matrix: number[][], weights: number[]): ShapleyResult {
     const n = matrix.length;
     const dimCount = weights.length;
+    if (n === 0) {
+      return {
+        shapleyValues: new Array(dimCount).fill(0),
+        contributionRatio: new Array(dimCount).fill(0),
+        absoluteContributionRatio: new Array(dimCount).fill(0),
+        dimensions: ShapleyValue.DIM_LABELS,
+        grandCoalitionValue: 0,
+        baseValue: 0,
+        predictionValue: 0,
+        baselineValues: new Array(dimCount).fill(0),
+        residual: 0,
+      };
+    }
     const accumulated = new Array(dimCount).fill(0);
 
     for (let row = 0; row < n; row++) {
@@ -943,6 +1329,9 @@ export class ShapleyValue {
     const contributionRatio = shapleyValues.map(v =>
       absSum > 0 ? Math.round((v / absSum) * 10000) / 10000 : 0,
     );
+    const absoluteContributionRatio = shapleyValues.map(v =>
+      absSum > 0 ? Math.round((Math.abs(v) / absSum) * 10000) / 10000 : 0,
+    );
 
     // 群体大联盟价值 = 所有候选加权分的均值
     const grandValue = matrix.reduce((sum, row) => {
@@ -952,8 +1341,13 @@ export class ShapleyValue {
     return {
       shapleyValues,
       contributionRatio,
+      absoluteContributionRatio,
       dimensions: ShapleyValue.DIM_LABELS,
       grandCoalitionValue: Math.round(grandValue * 10000) / 10000,
+      baseValue: 0,
+      predictionValue: Math.round(grandValue * 10000) / 10000,
+      baselineValues: new Array(dimCount).fill(0),
+      residual: 0,
     };
   }
 }
@@ -1288,6 +1682,10 @@ export interface ParetoResult {
   top1IsParetoOptimal: boolean;
   /** 支配 Top-1 的候选索引 (若非最优) */
   dominatorsOfTop1: number[];
+  /** 非支配分层，第一层即 Pareto 前沿 */
+  paretoLayers: number[][];
+  /** 每个候选所在的非支配层，0 为最优前沿 */
+  dominanceDepth: number[];
 }
 
 export class ParetoDominance {
@@ -1333,6 +1731,24 @@ export class ParetoDominance {
       .map((opt, i) => (opt ? i : -1))
       .filter(i => i >= 0);
 
+    // 非支配排序，用于同分时优先选择更靠前的 Pareto 层
+    const paretoLayers: number[][] = [];
+    const dominanceDepth = new Array(n).fill(0);
+    const remaining = new Set(Array.from({ length: n }, (_, i) => i));
+    while (remaining.size > 0) {
+      let front = [...remaining].filter(candidate =>
+        ![...remaining].some(other => other !== candidate && dominanceMatrix[other][candidate]),
+      );
+      // 理论上严格支配关系无环；兜底防止浮点异常导致死循环
+      if (front.length === 0) front = [...remaining];
+      const depth = paretoLayers.length;
+      front.forEach(candidate => {
+        dominanceDepth[candidate] = depth;
+        remaining.delete(candidate);
+      });
+      paretoLayers.push(front);
+    }
+
     // Top-1 的支配者
     const dominatorsOfTop1: number[] = [];
     for (let i = 0; i < n; i++) {
@@ -1345,8 +1761,124 @@ export class ParetoDominance {
       paretoFront,
       isParetoOptimal,
       dominanceMatrix,
-      top1IsParetoOptimal: isParetoOptimal[top1Index],
+      top1IsParetoOptimal: Boolean(isParetoOptimal[top1Index]),
       dominatorsOfTop1,
+      paretoLayers,
+      dominanceDepth,
+    };
+  }
+}
+
+// ==================== SMAA 风格权重不确定性分析 ====================
+
+export interface WeightUncertaintyResult {
+  iterations: number;
+  noiseLevel: number;
+  seed: number;
+  /** rankAcceptability[i][r] = 候选 i 获得第 r+1 名的概率 */
+  rankAcceptability: number[][];
+  firstRankAcceptability: number[];
+  expectedRanks: number[];
+  baseRanking: number[];
+  meanKendallTau: number;
+  referenceTop1Index: number;
+  referenceTop1Confidence: number;
+}
+
+/**
+ * 仅扰动准则权重的 SMAA 风格轻量分析。它不是完整 SMAA 的替代，
+ * 但能在在线请求的计算预算内给出排名可接受度与 Top-1 置信度。
+ */
+export class WeightUncertaintyAnalysis {
+  private static tau(a: number[], b: number[]): number {
+    if (a.length <= 1) return 1;
+    const posB = new Map(b.map((value, index) => [value, index]));
+    let concordant = 0;
+    let discordant = 0;
+    for (let i = 0; i < a.length; i++) {
+      for (let j = i + 1; j < a.length; j++) {
+        if ((posB.get(a[i]) || 0) < (posB.get(a[j]) || 0)) concordant++;
+        else discordant++;
+      }
+    }
+    const total = concordant + discordant;
+    return total > 0 ? (concordant - discordant) / total : 1;
+  }
+
+  static solve(
+    matrix: number[][],
+    baseWeights: number[],
+    options: {
+      iterations?: number;
+      noiseLevel?: number;
+      seed?: number;
+      referenceTop1Index?: number;
+    } = {},
+  ): WeightUncertaintyResult {
+    const iterations = Math.max(1, Math.floor(options.iterations ?? 512));
+    const noiseLevel = Math.max(0, options.noiseLevel ?? 0.15);
+    const initialSeed = options.seed ?? 20260722;
+    const n = matrix.length;
+
+    if (n === 0) {
+      return {
+        iterations, noiseLevel, seed: initialSeed, rankAcceptability: [],
+        firstRankAcceptability: [], expectedRanks: [], baseRanking: [], meanKendallTau: 1,
+        referenceTop1Index: -1, referenceTop1Confidence: 0,
+      };
+    }
+
+    const rankWith = (weights: number[]) => matrix
+      .map((row, index) => ({
+        index,
+        score: row.reduce((sum, value, j) => sum + value * weights[j], 0),
+      }))
+      .sort((a, b) => b.score - a.score || a.index - b.index)
+      .map(item => item.index);
+
+    const baseRanking = rankWith(baseWeights);
+    const acceptability = Array.from({ length: n }, () => new Array(n).fill(0));
+    let tauSum = 0;
+    let state = initialSeed >>> 0;
+    const random = () => {
+      state = (1664525 * state + 1013904223) >>> 0;
+      return state / 0x100000000;
+    };
+    const randomNormal = () => {
+      const u1 = Math.max(random(), 1e-12);
+      const u2 = random();
+      return Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
+    };
+
+    for (let iteration = 0; iteration < iterations; iteration++) {
+      const perturbed = baseWeights.map(weight => Math.max(1e-9, weight * Math.exp(noiseLevel * randomNormal())));
+      const sum = perturbed.reduce((a, b) => a + b, 0);
+      const normalized = perturbed.map(weight => weight / sum);
+      const ranking = rankWith(normalized);
+      ranking.forEach((candidate, rank) => { acceptability[candidate][rank]++; });
+      tauSum += WeightUncertaintyAnalysis.tau(baseRanking, ranking);
+    }
+
+    const rankAcceptability = acceptability.map(row =>
+      row.map(count => Math.round((count / iterations) * 1e6) / 1e6),
+    );
+    const firstRankAcceptability = rankAcceptability.map(row => row[0]);
+    const expectedRanks = rankAcceptability.map(row =>
+      Math.round(row.reduce((sum, probability, rank) => sum + probability * (rank + 1), 0) * 1e4) / 1e4,
+    );
+    const referenceTop1Index = options.referenceTop1Index ?? baseRanking[0];
+
+    return {
+      iterations,
+      noiseLevel,
+      seed: initialSeed,
+      rankAcceptability,
+      firstRankAcceptability,
+      expectedRanks,
+      baseRanking,
+      meanKendallTau: Math.round((tauSum / iterations) * 1e6) / 1e6,
+      referenceTop1Index,
+      referenceTop1Confidence: firstRankAcceptability[referenceTop1Index] || 0,
     };
   }
 }
@@ -1377,7 +1909,7 @@ export interface SensitivityResult {
  *
  * 幂法迭代收敛后的主特征向量:
  *   W = (0.3158, 0.1970, 0.1970, 0.1208, 0.0754, 0.0471, 0.0471)
- *   λmax = 7.0324, CI = 0.0054, CR = 0.0041 < 0.1 ✓
+ *   λmax ≈ 7.0887, CI ≈ 0.0148, CR ≈ 0.0112 < 0.1 ✓
  */
 export const AHP_WEIGHTS = {
   SPECIALTY: 0.3158,    // f₁: 科室匹配度 — 科室不对口则服务无意义，权重最高
@@ -1412,6 +1944,12 @@ const DEPARTMENT_HIERARCHY: Record<string, string[]> = {
 };
 
 // ==================== 核心算法 ====================
+
+export interface HardConstraintConfig {
+  requireVerified: boolean;
+  minSpecialtyScore: number;
+  minTrustScore: number;
+}
 
 export class MatchingAlgorithm {
 
@@ -1492,11 +2030,19 @@ export class MatchingAlgorithm {
     targetLat: number | undefined,
     targetLng: number | undefined,
   ): { score: number; explanation: string; distanceKm: number | null } {
-    if (targetLat === undefined || targetLng === undefined) {
+    if (
+      targetLat === undefined || targetLng === undefined
+      || !Number.isFinite(targetLat) || !Number.isFinite(targetLng)
+      || Math.abs(targetLat) > 90 || Math.abs(targetLng) > 180
+    ) {
       return { score: 0.5, explanation: '未提供位置信息，给予中间分', distanceKm: null };
     }
 
-    if (escortLat === null || escortLng === null) {
+    if (
+      escortLat === null || escortLng === null
+      || !Number.isFinite(escortLat) || !Number.isFinite(escortLng)
+      || Math.abs(escortLat) > 90 || Math.abs(escortLng) > 180
+    ) {
       return { score: 0.2, explanation: '陪诊师未设置位置', distanceKm: null };
     }
 
@@ -1519,14 +2065,15 @@ export class MatchingAlgorithm {
    * 信任分由五维加权模型计算：完成率、存证覆盖率、验证通过率、用户评价、活跃度。
    */
   static trustScore(trustScoreValue: number): { score: number; explanation: string } {
-    const normalized = Math.max(0, Math.min(1, trustScoreValue / 100));
-    const level = trustScoreValue >= 90 ? '极高' :
-                  trustScoreValue >= 75 ? '较高' :
-                  trustScoreValue >= 60 ? '中等' :
-                  trustScoreValue >= 40 ? '偏低' : '较低';
+    const safeValue = Number.isFinite(trustScoreValue) ? trustScoreValue : 0;
+    const normalized = Math.max(0, Math.min(1, safeValue / 100));
+    const level = safeValue >= 90 ? '极高' :
+                  safeValue >= 75 ? '较高' :
+                  safeValue >= 60 ? '中等' :
+                  safeValue >= 40 ? '偏低' : '较低';
     return {
       score: normalized,
-      explanation: `信任分 ${trustScoreValue.toFixed(1)} (${level})`,
+      explanation: `信任分 ${safeValue.toFixed(1)} (${level})`,
     };
   }
 
@@ -1537,13 +2084,15 @@ export class MatchingAlgorithm {
    * 无评分记录时给予 0.5 中间值 (贝叶斯先验思想)。
    */
   static qualityScore(rating: number, completedOrders: number): { score: number; explanation: string } {
-    if (completedOrders === 0 || rating === 0) {
+    const safeRating = Number.isFinite(rating) ? Math.max(0, rating) : 0;
+    const safeOrders = Number.isFinite(completedOrders) ? Math.max(0, completedOrders) : 0;
+    if (safeOrders === 0 || safeRating === 0) {
       return { score: 0.5, explanation: '暂无评价记录，给予先验中间分' };
     }
-    const normalized = Math.max(0, Math.min(1, rating / 5));
+    const normalized = Math.max(0, Math.min(1, safeRating / 5));
     return {
       score: normalized,
-      explanation: `用户评分 ${rating.toFixed(1)}/5.0`,
+      explanation: `用户评分 ${safeRating.toFixed(1)}/5.0`,
     };
   }
 
@@ -1557,18 +2106,22 @@ export class MatchingAlgorithm {
    * orders = 0 → 0.0; orders = 10 → 0.45; orders = 50 → 0.74; orders = 200 → 1.0
    */
   static experienceScore(completedOrders: number): { score: number; explanation: string } {
-    const score = Math.min(1, Math.log(1 + completedOrders) / Math.log(1 + MAX_ORDERS_REFERENCE));
+    const safeOrders = Number.isFinite(completedOrders) ? Math.max(0, completedOrders) : 0;
+    const score = Math.min(1, Math.log(1 + safeOrders) / Math.log(1 + MAX_ORDERS_REFERENCE));
     return {
       score: Math.round(score * 1000) / 1000,
-      explanation: `已完成 ${completedOrders} 单`,
+      explanation: `已完成 ${safeOrders} 单`,
     };
   }
 
   /**
    * f₆: 价格适配度 (Price Affordability Score)
    *
-   * 基于预算偏差的惩罚函数：
-   *   f_price = max(0, 1 - |rate - budget| / budget)
+   * 基于预算上限的非对称可负担性函数：
+   *   f_price = 1,                    rate ≤ budget
+   *             budget / rate,       rate > budget
+   *
+   * 低于预算不应受到惩罚；超预算时平滑衰减且不产生负值。
    *
    * 未提供预算时给予 0.5 中间值。
    * 陪诊师未设价格时给予 0.5。
@@ -1577,12 +2130,11 @@ export class MatchingAlgorithm {
     if (budget === undefined || budget <= 0) {
       return { score: 0.5, explanation: '未设定预算，价格维度中性' };
     }
-    if (hourlyRate === null || hourlyRate <= 0) {
+    if (hourlyRate === null || !Number.isFinite(hourlyRate) || hourlyRate <= 0) {
       return { score: 0.5, explanation: '陪诊师未设价格' };
     }
 
-    const deviation = Math.abs(hourlyRate - budget) / budget;
-    const score = Math.max(0, 1 - deviation);
+    const score = hourlyRate <= budget ? 1 : budget / hourlyRate;
 
     const relation = hourlyRate <= budget ? '在预算内' : '超出预算';
     return {
@@ -1600,10 +2152,11 @@ export class MatchingAlgorithm {
    * activeOrders = 0 → 1.0; = 1 → 0.5; = 2 → 0.33; = 4 → 0.2
    */
   static loadBalanceScore(activeOrderCount: number): { score: number; explanation: string } {
-    const score = 1 / (1 + activeOrderCount);
+    const safeCount = Number.isFinite(activeOrderCount) ? Math.max(0, activeOrderCount) : 0;
+    const score = 1 / (1 + safeCount);
     return {
       score: Math.round(score * 1000) / 1000,
-      explanation: activeOrderCount === 0 ? '当前无进行中订单' : `当前 ${activeOrderCount} 个进行中订单`,
+      explanation: safeCount === 0 ? '当前无进行中订单' : `当前 ${safeCount} 个进行中订单`,
     };
   }
 
@@ -1657,10 +2210,14 @@ export class MatchingAlgorithm {
       dimensions,
       summary,
       imageUrl: escort.imageUrl,
-      hourlyRate: escort.hourlyRate,
-      rating: escort.rating,
-      trustScore: escort.trustScore,
+      hourlyRate: escort.hourlyRate !== null && Number.isFinite(escort.hourlyRate)
+        ? escort.hourlyRate
+        : null,
+      rating: Number.isFinite(escort.rating) ? Math.max(0, Math.min(5, escort.rating)) : 0,
+      trustScore: Number.isFinite(escort.trustScore) ? Math.max(0, Math.min(100, escort.trustScore)) : 0,
       distanceKm: geo.distanceKm,
+      matchedServiceId: escort.matchedServiceId,
+      matchedServiceType: escort.matchedServiceType,
     };
   }
 
@@ -1785,14 +2342,56 @@ export class MatchingAlgorithm {
   // ==================== 硬约束预筛选 ====================
 
   /** 硬约束配置 */
-  static readonly HARD_CONSTRAINTS = {
+  static readonly HARD_CONSTRAINTS: Readonly<HardConstraintConfig> = {
     /** 必须已认证 */
     requireVerified: true,
     /** 科室匹配最低分 (0 = 无要求, 0.6 = 至少相关) */
-    minSpecialtyScore: 0.0,
+    minSpecialtyScore: 0.6,
     /** 信任分最低值 */
     minTrustScore: 0,
   };
+
+  /** 最终得分的三类信号权重；离线实验可传入其他组合，线上默认值保持固定。 */
+  static readonly FINAL_SCORE_WEIGHTS = {
+    utility: 0.65,
+    consensus: 0.25,
+    confidence: 0.10,
+  };
+
+  /**
+   * 合成效用、方法共识与首位可接受度。
+   * 非法或负权重按 0 处理后归一化，避免实验配置产生非有限得分。
+   */
+  static combineDecisionSignals(
+    utility: number,
+    consensus: number,
+    confidence: number,
+    weights: {
+      utility?: number;
+      consensus?: number;
+      confidence?: number;
+    } = MatchingAlgorithm.FINAL_SCORE_WEIGHTS,
+  ): number {
+    const rawWeights = [
+      weights.utility ?? MatchingAlgorithm.FINAL_SCORE_WEIGHTS.utility,
+      weights.consensus ?? MatchingAlgorithm.FINAL_SCORE_WEIGHTS.consensus,
+      weights.confidence ?? MatchingAlgorithm.FINAL_SCORE_WEIGHTS.confidence,
+    ].map(value => Number.isFinite(value) && value > 0 ? value : 0);
+    const weightSum = rawWeights.reduce((sum, value) => sum + value, 0);
+    const normalizedWeights = weightSum > 0
+      ? rawWeights.map(value => value / weightSum)
+      : [
+          MatchingAlgorithm.FINAL_SCORE_WEIGHTS.utility,
+          MatchingAlgorithm.FINAL_SCORE_WEIGHTS.consensus,
+          MatchingAlgorithm.FINAL_SCORE_WEIGHTS.confidence,
+        ];
+    const signals = [utility, consensus, confidence]
+      .map(value => Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : 0);
+    return signals.reduce(
+      (sum, value, index) => sum + value * normalizedWeights[index],
+      0,
+    );
+  }
 
   /**
    * 硬约束预筛选
@@ -1809,31 +2408,121 @@ export class MatchingAlgorithm {
   static filterHardConstraints(
     escorts: EscortFeatureVector[],
     request: MatchingRequest,
+    overrides: Partial<HardConstraintConfig> = {},
   ): { passed: EscortFeatureVector[]; filtered: { escort: EscortFeatureVector; reason: string }[] } {
     const passed: EscortFeatureVector[] = [];
     const filtered: { escort: EscortFeatureVector; reason: string }[] = [];
+    const constraints = {
+      ...MatchingAlgorithm.HARD_CONSTRAINTS,
+      ...overrides,
+    };
 
     for (const escort of escorts) {
       // 认证检查
-      if (MatchingAlgorithm.HARD_CONSTRAINTS.requireVerified && !escort.isVerified) {
+      if (constraints.requireVerified && !escort.isVerified) {
         filtered.push({ escort, reason: '未通过平台认证' });
         continue;
       }
 
       // 科室匹配阈值
       const specScore = MatchingAlgorithm.specialtyScore(escort.specialties, request.department).score;
-      if (specScore < MatchingAlgorithm.HARD_CONSTRAINTS.minSpecialtyScore) {
-        filtered.push({ escort, reason: `科室匹配度 ${specScore} 低于阈值 ${MatchingAlgorithm.HARD_CONSTRAINTS.minSpecialtyScore}` });
+      const genericDepartment = !request.department?.trim()
+        || ['综合', '全科', '其他', '未指定'].includes(request.department.trim());
+      if (!genericDepartment && specScore < constraints.minSpecialtyScore) {
+        filtered.push({ escort, reason: `科室匹配度 ${specScore} 低于阈值 ${constraints.minSpecialtyScore}` });
         continue;
       }
 
       // 信任分阈值
-      if (escort.trustScore < MatchingAlgorithm.HARD_CONSTRAINTS.minTrustScore) {
-        filtered.push({ escort, reason: `信任分 ${escort.trustScore} 低于阈值 ${MatchingAlgorithm.HARD_CONSTRAINTS.minTrustScore}` });
+      if (escort.trustScore < constraints.minTrustScore) {
+        filtered.push({ escort, reason: `信任分 ${escort.trustScore} 低于阈值 ${constraints.minTrustScore}` });
         continue;
       }
 
-      passed.push(escort);
+      // 服务类型与预约时段属硬约束（V38 起 fail-closed）：请求携带服务/时间字段而候选
+      // 可用性数据缺失时，排除出自动推荐并转人工复核，不再向后兼容放行。
+      const availabilityRequested = Boolean(
+        request.serviceType || request.hospitalId || request.appointmentDate || request.appointmentTime,
+      );
+      if (availabilityRequested && escort.availableServices === undefined) {
+        filtered.push({ escort, reason: '可用性数据缺失，已排除自动推荐并转人工复核' });
+        continue;
+      }
+
+      let matchedService: EscortAvailability | undefined;
+      if (escort.availableServices !== undefined && availabilityRequested) {
+        let available = escort.availableServices.filter(service =>
+          (!request.serviceType || service.serviceType === request.serviceType)
+          && (!request.hospitalId || !service.hospitalIds?.length || service.hospitalIds.includes(request.hospitalId)),
+        );
+
+        if (request.appointmentDate) {
+          const isoDate = request.appointmentDate.slice(0, 10);
+          const requestDay = new Date(`${isoDate}T12:00:00`);
+          if (!Number.isNaN(requestDay.getTime())) {
+            const weekday = requestDay.getDay() === 0 ? 7 : requestDay.getDay();
+            available = available.filter(service =>
+              service.startDate.slice(0, 10) <= isoDate
+              && service.endDate.slice(0, 10) >= isoDate
+              && service.availableWeekdays.includes(weekday)
+              && Boolean(service.timeSlots?.length)
+              && (service.bookingsOnDate || 0) < service.maxDailyOrders,
+            );
+          }
+        }
+
+        if (request.appointmentTime) {
+          const toMinutes = (value: string): number => {
+            const [hour, minute] = value.split(':').map(Number);
+            return Number.isInteger(hour) && Number.isInteger(minute)
+              && hour >= 0 && hour <= 23 && minute >= 0 && minute <= 59
+              ? hour * 60 + minute
+              : -1;
+          };
+          const requestedStart = toMinutes(request.appointmentTime);
+          const durationHours = Number.isFinite(request.durationHours)
+            ? Math.max(1 / 60, request.durationHours as number)
+            : 1;
+          const requestedEnd = requestedStart + durationHours * 60;
+          if (requestedStart >= 0) {
+            available = available.filter(service => {
+              const insidePublishedSlot = Boolean(service.timeSlots?.some(slot =>
+                requestedStart >= toMinutes(slot.start) && requestedEnd <= toMinutes(slot.end),
+              ));
+              const conflictsWithBooking = service.bookedTimeSlots?.some(slot =>
+                requestedStart < toMinutes(slot.end) && requestedEnd > toMinutes(slot.start),
+              ) || false;
+              return insidePublishedSlot && !conflictsWithBooking;
+            });
+          }
+        }
+
+        if (available.length === 0) {
+          filtered.push({ escort, reason: '服务类型或预约时段不可用' });
+          continue;
+        }
+
+        // 同一陪诊师存在多个可用发布时，选择价格最低的有效服务用于预算评分。
+        matchedService = [...available].sort((a, b) => {
+          const priceA = Number.isFinite(a.pricePerHour) && (a.pricePerHour as number) > 0
+            ? a.pricePerHour as number
+            : Number.POSITIVE_INFINITY;
+          const priceB = Number.isFinite(b.pricePerHour) && (b.pricePerHour as number) > 0
+            ? b.pricePerHour as number
+            : Number.POSITIVE_INFINITY;
+          return priceA - priceB || (a.serviceId || '').localeCompare(b.serviceId || '');
+        })[0];
+      }
+
+      const servicePrice = matchedService?.pricePerHour;
+      passed.push(matchedService ? {
+        ...escort,
+        hourlyRate: Number.isFinite(servicePrice) && (servicePrice as number) > 0
+          ? servicePrice as number
+          : escort.hourlyRate,
+        matchedServiceId: matchedService.serviceId,
+        matchedServiceType: matchedService.serviceType,
+      } : escort);
     }
 
     return { passed, filtered };
@@ -1842,29 +2531,13 @@ export class MatchingAlgorithm {
   // ==================== 完整多方法融合决策管线 ====================
 
   /**
-   * 完整决策管线: 硬约束 → 博弈论赋权 → WSM/TOPSIS/VIKOR → Borda-Copeland 聚合
-   *
-   * 这是论文中提出的完整 MDWMA v2 算法流程:
-   *
-   *   Phase 1 - 硬约束预筛选:
-   *     过滤未认证、科室不匹配、信任分过低的候选
-   *
-   *   Phase 2 - 博弈论组合赋权:
-   *     AHP 主观权重 + EWM 客观权重 → Nash 均衡最优组合
-   *     (消除 α 参数的主观任意性)
-   *
-   *   Phase 3 - 三重排序:
-   *     (a) WSM 加权求和排序 (基准方法)
-   *     (b) TOPSIS 逼近理想解排序
-   *     (c) VIKOR 妥协解排序
-   *
-   *   Phase 4 - Borda-Copeland 排名聚合:
-   *     融合三种排序，输出鲁棒最终排序
-   *
-   * @param escorts 候选陪诊师集合
-   * @param request 患者匹配请求
-   * @param topK 返回前 K 个结果
-   * @param v VIKOR 决策策略系数 (默认 0.5)
+   * MDWMA 完整决策管线：
+   *   1. 医疗安全与服务可用性硬约束
+   *   2. AHP/EWM/CRITIC 小样本鲁棒自适应赋权
+   *   3. WSM/TOPSIS/VIKOR/PROMETHEE/GRA 五路排序
+   *   4. Kendall 一致性加权的 Borda-Copeland 共识
+   *   5. SMAA 风格权重不确定性与排名可接受度
+   *   6. 均值基线 Shapley、前景理论和 Pareto 校验
    */
   static rankEscortsFull(
     escorts: EscortFeatureVector[],
@@ -1874,11 +2547,20 @@ export class MatchingAlgorithm {
   ): {
     results: MatchingResult[];
     meta: {
-      hardConstraints: { total: number; passed: number; filtered: number };
+      status: 'ok' | 'no_candidates';
+      warnings: string[];
+      hardConstraints: {
+        total: number;
+        passed: number;
+        filtered: number;
+        filteredReasons: Record<string, number>;
+      };
       ahp: AHPResult;
       ewm: EWMResult;
+      /** 仅保留用于和旧版实现对照，不参与现行排序 */
       gameTheoretic: GameTheoreticResult;
       critic: CRITICResult;
+      robustWeighting: RobustWeightingResult;
       topsis: TOPSISResult;
       vikor: VIKORResult;
       promethee: PROMETHEEResult;
@@ -1886,21 +2568,89 @@ export class MatchingAlgorithm {
       shapley: ShapleyResult;
       prospectTheory: ProspectTheoryResult;
       pareto: ParetoResult;
-      aggregation: RankAggregationResult;
+      aggregation: RobustRankAggregationResult;
+      uncertainty: WeightUncertaintyResult;
       method: string;
     };
   } {
-    // Phase 1: 硬约束预筛选
-    const { passed } = MatchingAlgorithm.filterHardConstraints(escorts, request);
-    const candidates = passed.length > 0 ? passed : escorts; // 全部被过滤时回退
+    const method = 'MDWMA (Safety Constraints × Robust AHP/EWM/CRITIC × 5-MCDM Consensus × SMAA × Baseline-Shapley × PT × Pareto)';
+    const safeTopK = Number.isFinite(topK) ? Math.max(0, Math.floor(topK)) : 10;
+    const availabilityRequested = Boolean(
+      request.serviceType || request.hospitalId || request.appointmentDate || request.appointmentTime,
+    );
+    const missingAvailabilityCount = availabilityRequested
+      ? escorts.filter(escort => escort.availableServices === undefined).length
+      : 0;
+    const coverageWarnings = missingAvailabilityCount > 0
+      ? [`${missingAvailabilityCount}/${escorts.length} 个候选缺少发布服务可用性数据，已排除出自动推荐并转人工复核（fail-closed）`]
+      : [];
 
-    // Phase 2: 三源博弈论组合赋权 (AHP + EWM + CRITIC)
+    // Phase 1: 硬约束预筛选。禁止 v4 的“全部失败则回放原候选”行为。
+    const { passed: candidates, filtered } = MatchingAlgorithm.filterHardConstraints(escorts, request);
+    const filteredReasons = filtered.reduce<Record<string, number>>((counts, item) => {
+      counts[item.reason] = (counts[item.reason] || 0) + 1;
+      return counts;
+    }, {});
     const ahp = AHPSolver.solve(AHP_JUDGMENT_MATRIX);
+
+    if (candidates.length === 0) {
+      const robustWeighting = RobustAdaptiveWeighting.solve([ahp.weights], 0, {
+        sourceNames: ['AHP'],
+      });
+      const emptyShapley = ShapleyValue.solve([], robustWeighting.weights, 0, 'mean');
+      return {
+        results: [],
+        meta: {
+          status: 'no_candidates',
+          warnings: [...coverageWarnings, '没有候选通过医疗安全与服务可用性硬约束'],
+          hardConstraints: {
+            total: escorts.length,
+            passed: 0,
+            filtered: filtered.length,
+            filteredReasons,
+          },
+          ahp,
+          ewm: { weights: ahp.weights, entropies: [], diversities: [] },
+          gameTheoretic: GameTheoreticWeighting.solve([ahp.weights]),
+          critic: {
+            weights: ahp.weights,
+            stdDeviations: [], correlationMatrix: [], conflicts: [], informationAmounts: [],
+          },
+          robustWeighting,
+          topsis: { closeness: [], distanceToIdeal: [], distanceToAntiIdeal: [], ranking: [] },
+          vikor: {
+            S: [], R: [], Q: [], ranking: [], v,
+            acceptableAdvantage: false, acceptableStability: false, compromiseValid: false,
+          },
+          promethee: { netFlows: [], positiveFlows: [], negativeFlows: [], ranking: [], sigmas: [] },
+          gra: {
+            relationalGrades: [], coefficients: [], ranking: [], referenceSequence: [],
+            rho: 0.5, deltaMin: 0, deltaMax: 0,
+          },
+          shapley: emptyShapley,
+          prospectTheory: {
+            prospectValues: [], valueMatrix: [], ranking: [], referencePoints: [],
+            params: { alpha: ProspectTheory.ALPHA, beta: ProspectTheory.BETA, lambda: ProspectTheory.LAMBDA },
+          },
+          pareto: ParetoDominance.solve([], -1),
+          aggregation: RobustRankAggregation.solve([], []),
+          uncertainty: WeightUncertaintyAnalysis.solve([], robustWeighting.weights),
+          method,
+        },
+      };
+    }
+
+    // Phase 2: 小样本鲁棒自适应赋权。legacy GT 仅用于差异审计。
     const { matrix, results } = MatchingAlgorithm.buildDecisionMatrix(candidates, request);
     const ewm = EntropyWeightMethod.solve(matrix);
     const critic = CRITIC.solve(matrix);
     const gt = GameTheoreticWeighting.solve([ahp.weights, ewm.weights, critic.weights]);
-    const w = gt.weights;
+    const robustWeighting = RobustAdaptiveWeighting.solve(
+      [ahp.weights, ewm.weights, critic.weights],
+      candidates.length,
+      { sourceNames: ['AHP', 'EWM', 'CRITIC'], methodFloor: 0.1, criterionCap: 0.45 },
+    );
+    const w = robustWeighting.weights;
 
     // Phase 3a: WSM 加权求和排序
     const wsmScores = matrix.map(row => row.reduce((s, val, j) => s + val * w[j], 0));
@@ -1921,28 +2671,60 @@ export class MatchingAlgorithm {
     // Phase 3e: GRA (灰色关联)
     const gra = GreyRelationalAnalysis.solve(matrix, w);
 
-    // Phase 4: Borda-Copeland 五路排名聚合
-    const aggregation = RankAggregation.solve(
+    // Phase 4: 按方法间一致性加权的 Borda-Copeland 五路聚合
+    const aggregation = RobustRankAggregation.solve(
       [wsmRanking, topsis.ranking, vikor.ranking, promethee.ranking, gra.ranking],
       ['WSM', 'TOPSIS', 'VIKOR', 'PROMETHEE', 'GRA'],
     );
 
-    // Phase 5: Shapley 维度贡献分解 (对 Top-1 候选)
-    const top1Idx = aggregation.finalRanking[0];
-    const shapley = ShapleyValue.solve(matrix, w, top1Idx);
+    // Phase 5: 权重不确定性。先计算各候选第一名可接受度，再形成最终鲁棒分。
+    const uncertaintyBase = WeightUncertaintyAnalysis.solve(matrix, w, {
+      iterations: 512,
+      noiseLevel: 0.15,
+      seed: 20260722,
+      referenceTop1Index: aggregation.finalRanking[0],
+    });
 
-    // Phase 6: 前景理论行为决策验证
+    const finalScores = matrix.map((_, index) => {
+      const utility = Math.max(0, Math.min(1, wsmScores[index]));
+      const consensus = aggregation.consensusScores[index] || 0;
+      const confidence = uncertaintyBase.firstRankAcceptability[index] || 0;
+      return MatchingAlgorithm.combineDecisionSignals(utility, consensus, confidence);
+    });
+
+    let finalRanking = Array.from({ length: candidates.length }, (_, index) => index)
+      .sort((a, b) => finalScores[b] - finalScores[a] || a - b);
+
+    // Phase 6: 行为决策与 Pareto 安全校验。若 Top-1 被支配，提升最高分非支配候选。
     const prospectTheory = ProspectTheory.solve(matrix, w);
+    let pareto = ParetoDominance.solve(matrix, finalRanking[0]);
+    const warnings = [...coverageWarnings, ...robustWeighting.warnings];
+    if (!pareto.top1IsParetoOptimal && pareto.paretoFront.length > 0) {
+      const safeTop = [...pareto.paretoFront].sort((a, b) => finalScores[b] - finalScores[a])[0];
+      finalRanking = [safeTop, ...finalRanking.filter(index => index !== safeTop)];
+      pareto = ParetoDominance.solve(matrix, safeTop);
+      warnings.push('原始 Top-1 被 Pareto 支配，已提升最高分非支配候选');
+    }
 
-    // Phase 7: Pareto 最优性验证
-    const pareto = ParetoDominance.solve(matrix, top1Idx);
+    const top1Idx = finalRanking[0];
+    const uncertainty: WeightUncertaintyResult = {
+      ...uncertaintyBase,
+      referenceTop1Index: top1Idx,
+      referenceTop1Confidence: uncertaintyBase.firstRankAcceptability[top1Idx] || 0,
+    };
+    const shapley = ShapleyValue.solve(matrix, w, top1Idx, 'mean');
 
-    // 按聚合排序输出结果
-    const rankedResults = aggregation.finalRanking
+    if (Math.max(...gt.equilibriumCoefficients) > 0.95) {
+      warnings.push('旧版博弈论系数发生单方法塌缩；现行 MDWMA 已改用受约束自适应赋权');
+    }
+    if (aggregation.consensusIndex < 0.65) warnings.push('五路排序共识偏低');
+    if (uncertainty.referenceTop1Confidence < 0.6) warnings.push('Top-1 对权重扰动较敏感');
+
+    // 按现行 MDWMA 鲁棒分输出结果；效用、共识和置信度分别保留，避免解释混淆。
+    const rankedResults = finalRanking
       .map(idx => {
         const r = results[idx];
-        // 用 WSM 加权分作为综合得分 (可解释性最好)
-        const score = Math.round(wsmScores[idx] * 10000) / 10000;
+        const score = Math.round(finalScores[idx] * 10000) / 10000;
         return {
           ...r,
           compositeScore: score,
@@ -1957,22 +2739,30 @@ export class MatchingAlgorithm {
             weight: w[j],
             weightedScore: Math.round(d.score * w[j] * 10000) / 10000,
           })),
+          utilityScore: Math.round(wsmScores[idx] * 10000) / 10000,
+          consensusScore: aggregation.consensusScores[idx],
+          rankConfidence: uncertainty.firstRankAcceptability[idx],
+          paretoLayer: pareto.dominanceDepth[idx],
         };
       })
-      .slice(0, topK);
+      .slice(0, safeTopK);
 
     return {
       results: rankedResults,
       meta: {
+        status: 'ok',
+        warnings,
         hardConstraints: {
           total: escorts.length,
           passed: candidates.length,
-          filtered: escorts.length - candidates.length,
+          filtered: filtered.length,
+          filteredReasons,
         },
         ahp,
         ewm,
         gameTheoretic: gt,
         critic,
+        robustWeighting,
         topsis,
         vikor,
         promethee,
@@ -1981,7 +2771,8 @@ export class MatchingAlgorithm {
         prospectTheory,
         pareto,
         aggregation,
-        method: 'MDWMA v4 (AHP-EWM-CRITIC-GT × WSM/TOPSIS/VIKOR/PROMETHEE/GRA × Borda-Copeland × Shapley × PT × Pareto)',
+        uncertainty,
+        method,
       },
     };
   }

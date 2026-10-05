@@ -15,6 +15,8 @@
 - **贵州模式赋能 (Regional Transit Model)** - 专为山地地形设计的城乡医疗接力接驳支持，助力分级诊疗。
 - **Android & Web跨端 (Mobile Ready)** - 借助 Capacitor 实现端到端覆盖。
 
+算法设计、公式、审计结论与验证边界见 [MDWMA v5 研究与设计说明](docs/MDWMA_V5_RESEARCH_AND_DESIGN.md)。
+
 ## Tech Stack
 
 | Layer | Technology |

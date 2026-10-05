@@ -1,4 +1,4 @@
-import { IsString, IsNumber, IsOptional, IsDateString, IsEnum, IsInt, Min, Max } from 'class-validator';
+import { IsString, IsNumber, IsOptional, IsDateString, IsEnum, IsInt, Matches, ValidateIf, Min, Max } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { ServiceType, OrderStatus } from '@prisma/client';
 
@@ -39,13 +39,13 @@ export class CreateOrderDto {
   duration?: number;
 
   @ApiPropertyOptional({ description: '预约日期' })
-  @IsOptional()
+  @ValidateIf(value => value.appointmentDate !== undefined || value.appointmentTime !== undefined)
   @IsDateString()
   appointmentDate?: string;
 
   @ApiPropertyOptional({ description: '预约时间' })
   @IsOptional()
-  @IsString()
+  @Matches(/^([01]\d|2[0-3]):[0-5]\d$/)
   appointmentTime?: string;
 
   @ApiPropertyOptional({ description: '备注' })
@@ -146,6 +146,23 @@ export class SmartMatchDto {
   @IsOptional()
   @IsEnum(ServiceType)
   serviceType?: ServiceType;
+
+  @ApiPropertyOptional({ description: '预约日期', example: '2026-07-22' })
+  @ValidateIf(value => value.appointmentDate !== undefined || value.appointmentTime !== undefined)
+  @IsDateString()
+  appointmentDate?: string;
+
+  @ApiPropertyOptional({ description: '预约时间 (HH:mm)', example: '09:30' })
+  @IsOptional()
+  @Matches(/^([01]\d|2[0-3]):[0-5]\d$/)
+  appointmentTime?: string;
+
+  @ApiPropertyOptional({ description: '预计服务时长（小时）', example: 2, default: 1 })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(12)
+  duration?: number;
 
   @ApiPropertyOptional({ description: '返回结果数量', default: 5 })
   @IsOptional()

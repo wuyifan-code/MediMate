@@ -1,5 +1,5 @@
 /**
- * MDWMA 算法单元测试 (含 AHP-EWM-TOPSIS-VIKOR 完整管线)
+ * MDWMA 算法单元测试 (含安全约束、鲁棒赋权、共识排序与不确定性分析)
  * 运行: npx ts-node server/src/modules/matching/matching-algorithm.spec.ts
  */
 import {
@@ -13,7 +13,10 @@ import {
   TOPSIS,
   VIKOR,
   RankAggregation,
+  RobustRankAggregation,
   GameTheoreticWeighting,
+  RobustAdaptiveWeighting,
+  WeightUncertaintyAnalysis,
   ShapleyValue,
   PROMETHEE,
   GreyRelationalAnalysis,
@@ -22,6 +25,8 @@ import {
   combinedWeights,
   AHP_WEIGHTS,
 } from './matching-algorithm';
+import { validateSync } from 'class-validator';
+import { MatchingRequestDto } from './dto/matching.dto';
 
 // ==================== 测试数据 ====================
 
@@ -205,10 +210,10 @@ function testPriceScore() {
   assert(exact.score === 1.0, `精确预算得分 = ${exact.score} (期望 1.0)`);
 
   const under = MatchingAlgorithm.priceScore(60, 80);
-  assert(under.score === 0.75, `低于预算得分 = ${under.score} (期望 0.75)`);
+  assert(under.score === 1, `低于预算不受惩罚 = ${under.score} (期望 1.0)`);
 
   const over = MatchingAlgorithm.priceScore(100, 80);
-  assert(over.score === 0.75, `超出预算得分 = ${over.score} (期望 0.75)`);
+  assert(over.score === 0.8, `超出预算按 budget/rate 衰减 = ${over.score} (期望 0.8)`);
 
   const noBudget = MatchingAlgorithm.priceScore(80, undefined);
   assert(noBudget.score === 0.5, `无预算中性分 = ${noBudget.score} (期望 0.5)`);
@@ -225,6 +230,52 @@ function testLoadBalance() {
 
   const busy = MatchingAlgorithm.loadBalanceScore(4);
   assert(busy.score === 0.2, `4单得分 = ${busy.score} (期望 0.2)`);
+}
+
+function testMalformedFeatureSafety() {
+  console.log('\n=== 异常特征值安全归一化 ===');
+  const malformed: EscortFeatureVector = {
+    ...mockEscorts[0],
+    latitude: Number.POSITIVE_INFINITY,
+    longitude: 999,
+    trustScore: Number.NaN,
+    rating: Number.POSITIVE_INFINITY,
+    completedOrders: -10,
+    hourlyRate: Number.NaN,
+    activeOrderCount: -3,
+  };
+  const result = MatchingAlgorithm.computeCompositeScore(malformed, request);
+
+  assert(Number.isFinite(result.compositeScore), '异常输入不会产生 NaN 综合分');
+  assert(result.dimensions.every(item => Number.isFinite(item.score) && item.score >= 0 && item.score <= 1), '各维度均被约束在 [0,1]');
+  assert(result.hourlyRate === null, '非法价格在输出中归一为空值');
+  assert(result.rating === 0 && result.trustScore === 0, '非法评分与信任分归一为 0');
+}
+
+function testMatchingRequestValidation() {
+  console.log('\n=== 匹配请求 DTO 联动校验 ===');
+  const validate = (value: Partial<MatchingRequestDto>) => validateSync(
+    Object.assign(new MatchingRequestDto(), value),
+  );
+
+  assert(validate({ department: '心内科' }).length === 0, '日期时间均省略时请求有效');
+  assert(
+    validate({ department: '心内科', appointmentTime: '09:30' })
+      .some(error => error.property === 'appointmentDate'),
+    '提供时间但缺少日期时拒绝请求',
+  );
+  assert(
+    validate({ department: '心内科', appointmentDate: '2026-07-22', appointmentTime: '09:30', durationHours: 2 }).length === 0,
+    '完整日期、时间和时长请求有效',
+  );
+  assert(
+    validate({ department: '心内科', serviceType: 'invalid' as any }).some(error => error.property === 'serviceType'),
+    '非法服务类型被枚举校验拒绝',
+  );
+  assert(
+    validate({ department: '心内科', topK: 1.5 }).some(error => error.property === 'topK'),
+    '非整数 topK 被拒绝',
+  );
 }
 
 // ==================== 综合排序测试 ====================
@@ -692,69 +743,79 @@ function testHardConstraints() {
   const escortsWithUnverified = [...mockEscorts, unverifiedEscort];
   const { passed, filtered } = MatchingAlgorithm.filterHardConstraints(escortsWithUnverified, request);
 
-  assert(passed.length === 4, `通过筛选: ${passed.length} (期望 4)`);
-  assert(filtered.length === 1, `被过滤: ${filtered.length} (期望 1)`);
-  assert(filtered[0].escort.id === 'escort-unverified', '未认证者被过滤');
-  assert(filtered[0].reason.includes('认证'), `过滤原因: ${filtered[0].reason}`);
+  assert(passed.length === 2, `通过筛选: ${passed.length} (期望 2)`);
+  assert(filtered.length === 3, `被过滤: ${filtered.length} (期望 3)`);
+  assert(filtered.some(item => item.escort.id === 'escort-unverified' && item.reason.includes('认证')), '未认证者被过滤');
+  assert(filtered.filter(item => item.reason.includes('科室匹配度')).length === 2, '两个科室不匹配候选被过滤');
 
-  // 所有 mock 陪诊师都已认证，应全部通过
+  // 认证只是安全条件之一；心内科请求还必须满足科室相关性阈值
   const allPass = MatchingAlgorithm.filterHardConstraints(mockEscorts, request);
-  assert(allPass.passed.length === 4, '已认证陪诊师全部通过');
-  assert(allPass.filtered.length === 0, '无过滤');
+  assert(allPass.passed.length === 2, '仅保留心内科精确或父级相关候选');
+  assert(allPass.filtered.length === 2, '科室不匹配候选被排除');
+  assert(allPass.passed.map(item => item.id).join(',') === 'escort-1,escort-3', '通过候选为张护士和王阿姨');
 
   console.log(`  通过: ${passed.length}, 过滤: ${filtered.length}`);
 }
 
-// ==================== 完整管线测试 (MDWMA v4) ====================
+// ==================== 完整管线测试 (MDWMA) ====================
 
 function testRankEscortsFull() {
-  console.log('\n=== MDWMA v4 完整管线 (5路MCDM × Borda-Copeland × Shapley × PT × Pareto) ===');
+  console.log('\n=== MDWMA 完整管线 (安全约束 × 鲁棒赋权 × 5路共识 × SMAA × 基线Shapley) ===');
 
   const { results, meta } = MatchingAlgorithm.rankEscortsFull(mockEscorts, request, 4);
 
   // 基本结构
-  assert(results.length === 4, `返回 ${results.length} 个结果`);
-  assert(meta.method.includes('MDWMA v4'), `方法: ${meta.method}`);
+  assert(results.length === 2, `返回 ${results.length} 个安全候选`);
+  assert(meta.status === 'ok', `状态: ${meta.status}`);
+  assert(meta.method.includes('MDWMA'), `方法: ${meta.method}`);
 
   // 硬约束
   assert(meta.hardConstraints.total === 4, `总候选: ${meta.hardConstraints.total}`);
-  assert(meta.hardConstraints.passed === 4, `通过: ${meta.hardConstraints.passed}`);
-  assert(meta.hardConstraints.filtered === 0, `过滤: ${meta.hardConstraints.filtered}`);
+  assert(meta.hardConstraints.passed === 2, `通过: ${meta.hardConstraints.passed}`);
+  assert(meta.hardConstraints.filtered === 2, `过滤: ${meta.hardConstraints.filtered}`);
 
-  // 博弈论赋权
-  assert(meta.gameTheoretic.weights.length === 7, '博弈论 7 维权重');
-  const gtSum = meta.gameTheoretic.weights.reduce((a, b) => a + b, 0);
-  assertApprox(gtSum, 1.0, 0.001, `博弈论权重之和 = ${gtSum.toFixed(4)}`);
-  console.log(`  博弈论均衡系数: [${meta.gameTheoretic.equilibriumCoefficients.join(', ')}]`);
-  console.log(`  博弈论权重:     [${meta.gameTheoretic.weights.join(', ')}]`);
+  // 现行 MDWMA 鲁棒赋权；旧版博弈论结果仅作为塌缩诊断
+  assert(meta.robustWeighting.weights.length === 7, '鲁棒赋权 7 维权重');
+  const robustSum = meta.robustWeighting.weights.reduce((a, b) => a + b, 0);
+  assertApprox(robustSum, 1.0, 0.001, `鲁棒权重之和 = ${robustSum.toFixed(4)}`);
+  assert(meta.robustWeighting.methodCoefficients.every(value => value >= 0.099), '每种赋权来源保留至少 10% 份额');
+  assert(Math.max(...meta.robustWeighting.weights) <= 0.450001, '单一准则权重不超过 45%');
+  assert(meta.robustWeighting.dataAdequacy < 0.2, '小样本触发客观权重收缩');
+  console.log(`  鲁棒来源系数: [${meta.robustWeighting.methodCoefficients.join(', ')}]`);
+  console.log(`  鲁棒权重:     [${meta.robustWeighting.weights.join(', ')}]`);
 
   // VIKOR
-  assert(meta.vikor.Q.length === 4, 'VIKOR 4 个 Q 值');
+  assert(meta.vikor.Q.length === 2, 'VIKOR 2 个 Q 值');
   console.log(`  VIKOR Q: [${meta.vikor.Q.join(', ')}]`);
   console.log(`  VIKOR 妥协解有效: ${meta.vikor.compromiseValid}`);
 
   // PROMETHEE II
-  assert(meta.promethee.netFlows.length === 4, 'PROMETHEE 4 个净流');
-  assert(meta.promethee.ranking.length === 4, 'PROMETHEE 排序 4 个');
+  assert(meta.promethee.netFlows.length === 2, 'PROMETHEE 2 个净流');
+  assert(meta.promethee.ranking.length === 2, 'PROMETHEE 排序 2 个');
   console.log(`  PROMETHEE 净流: [${meta.promethee.netFlows.join(', ')}]`);
   console.log(`  PROMETHEE 排序: [${meta.promethee.ranking.join(', ')}]`);
 
   // GRA
-  assert(meta.gra.relationalGrades.length === 4, 'GRA 4 个关联度');
-  assert(meta.gra.ranking.length === 4, 'GRA 排序 4 个');
+  assert(meta.gra.relationalGrades.length === 2, 'GRA 2 个关联度');
+  assert(meta.gra.ranking.length === 2, 'GRA 排序 2 个');
   console.log(`  GRA 关联度: [${meta.gra.relationalGrades.join(', ')}]`);
   console.log(`  GRA 排序:   [${meta.gra.ranking.join(', ')}]`);
 
   // Shapley
   assert(meta.shapley.shapleyValues.length === 7, 'Shapley 7 维贡献');
-  const shapleySum = meta.shapley.contributionRatio.reduce((a, b) => a + b, 0);
-  assertApprox(shapleySum, 1.0, 0.01, `Shapley 贡献占比之和 = ${shapleySum.toFixed(4)}`);
+  const shapleyAbsSum = meta.shapley.absoluteContributionRatio.reduce((a, b) => a + b, 0);
+  assertApprox(shapleyAbsSum, 1.0, 0.01, `Shapley 绝对贡献占比之和 = ${shapleyAbsSum.toFixed(4)}`);
+  assertApprox(
+    meta.shapley.baseValue + meta.shapley.shapleyValues.reduce((a, b) => a + b, 0),
+    meta.shapley.predictionValue,
+    0.001,
+    '基线值 + Shapley 贡献 = 候选效用',
+  );
   console.log(`  Shapley 值: [${meta.shapley.shapleyValues.join(', ')}]`);
   console.log(`  贡献占比:   [${meta.shapley.contributionRatio.join(', ')}]`);
 
   // 前景理论
-  assert(meta.prospectTheory.prospectValues.length === 4, 'PT 4 个前景价值');
-  assert(meta.prospectTheory.ranking[0] === meta.aggregation.finalRanking[0], 'PT Top-1 与聚合一致');
+  assert(meta.prospectTheory.prospectValues.length === 2, 'PT 2 个前景价值');
   console.log(`  前景价值:   [${meta.prospectTheory.prospectValues.join(', ')}]`);
   console.log(`  PT 排序:    [${meta.prospectTheory.ranking.join(', ')}]`);
 
@@ -765,8 +826,11 @@ function testRankEscortsFull() {
   console.log(`  Top-1 Pareto 最优: ${meta.pareto.top1IsParetoOptimal}`);
 
   // 排名聚合 (5路)
-  assert(meta.aggregation.finalRanking.length === 4, '聚合排序 4 个');
+  assert(meta.aggregation.finalRanking.length === 2, '聚合排序 2 个');
   assert(meta.aggregation.methodNames.length === 5, '5 路聚合方法');
+  assertApprox(meta.aggregation.methodWeights.reduce((a, b) => a + b, 0), 1, 0.001, '聚合方法权重之和为 1');
+  assert(meta.aggregation.methodWeights.every(value => value > 0), '所有排序方法保留正权重');
+  assert(meta.aggregation.consensusIndex >= 0 && meta.aggregation.consensusIndex <= 1, '共识指数位于 [0,1]');
   console.log(`  WSM 排序:       [${meta.aggregation.inputRankings[0].join(', ')}]`);
   console.log(`  TOPSIS 排序:    [${meta.aggregation.inputRankings[1].join(', ')}]`);
   console.log(`  VIKOR 排序:     [${meta.aggregation.inputRankings[2].join(', ')}]`);
@@ -778,6 +842,11 @@ function testRankEscortsFull() {
 
   // 张护士应排第一 (心内科精确匹配)
   assert(results[0].escortId === 'escort-1', `Top-1 是 ${results[0].name} (期望张护士)`);
+  assert(results.every(result => Number.isFinite(result.utilityScore)), '结果保留可解释的效用分');
+  assert(results.every(result => Number.isFinite(result.consensusScore)), '结果保留共识分');
+  assert(results.every(result => Number.isFinite(result.rankConfidence)), '结果保留排名置信度');
+  assert(meta.uncertainty.rankAcceptability.length === 2, '输出两名候选的排名可接受度');
+  assert(meta.uncertainty.referenceTop1Index === 0, '不确定性分析跟踪最终 Top-1');
 
   // 分数降序
   for (let i = 0; i < results.length - 1; i++) {
@@ -787,10 +856,264 @@ function testRankEscortsFull() {
     );
   }
 
-  console.log('\n  MDWMA v4 排序结果:');
+  console.log('\n  MDWMA 排序结果:');
   results.forEach((r, i) => {
     console.log(`  #${i + 1} ${r.name}: ${r.compositeScorePercent}% [${r.matchLevel}] — ${r.summary}`);
   });
+}
+
+// ==================== 现行 MDWMA 鲁棒性与安全回归测试 ====================
+
+function testRobustAdaptiveWeighting() {
+  console.log('\n=== MDWMA 样本充分度自适应赋权 ===');
+  const result = RobustAdaptiveWeighting.solve([
+    [0.70, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05],
+    [0.05, 0.05, 0.70, 0.05, 0.05, 0.05, 0.05],
+    [0.05, 0.05, 0.05, 0.70, 0.05, 0.05, 0.05],
+  ], 2, { sourceNames: ['AHP', 'EWM', 'CRITIC'], methodFloor: 0.1, criterionCap: 0.45 });
+
+  assertApprox(result.weights.reduce((a, b) => a + b, 0), 1, 0.000001, '鲁棒权重严格归一化');
+  assertApprox(result.methodCoefficients.reduce((a, b) => a + b, 0), 1, 0.000001, '来源系数严格归一化');
+  assert(result.methodCoefficients.every(value => value >= 0.099), '来源系数不会塌缩为 0');
+  assert(Math.max(...result.weights) <= 0.450001, '准则权重执行 45% 上限');
+  assert(result.dataAdequacy < 0.2, 'n=2、m=7 被识别为小样本');
+  assert(result.adequacyPriorStrength === 2, '样本充分度先验强度默认 κ=2');
+  assert(result.warnings.some(item => item.includes('小于 κ×维度数')), '输出带 κ 的小样本风险提示');
+
+  const weakPrior = RobustAdaptiveWeighting.solve([
+    [0.70, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05],
+    [0.05, 0.05, 0.70, 0.05, 0.05, 0.05, 0.05],
+    [0.05, 0.05, 0.05, 0.70, 0.05, 0.05, 0.05],
+  ], 14, { adequacyPriorStrength: 1 });
+  const strongPrior = RobustAdaptiveWeighting.solve([
+    [0.70, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05],
+    [0.05, 0.05, 0.70, 0.05, 0.05, 0.05, 0.05],
+    [0.05, 0.05, 0.05, 0.70, 0.05, 0.05, 0.05],
+  ], 14, { adequacyPriorStrength: 4 });
+  assert(weakPrior.dataAdequacy > strongPrior.dataAdequacy, 'κ 增大时客观权重释放速度单调下降');
+  assertApprox(weakPrior.dataAdequacy, 2 / 3, 0.000001, 'κ=1 时 ρ=14/(14+7)');
+  assertApprox(strongPrior.dataAdequacy, 1 / 3, 0.000001, 'κ=4 时 ρ=14/(14+28)');
+}
+
+function testAuditableDecisionParameters() {
+  console.log('\n=== 可审计阈值与最终信号组合 ===');
+  const strictSpecialty = MatchingAlgorithm.filterHardConstraints(
+    mockEscorts,
+    request,
+    { minSpecialtyScore: 0.8 },
+  );
+  assert(strictSpecialty.passed.length === 1, '科室阈值提高到 0.8 后仅保留精确匹配候选');
+  assert(strictSpecialty.passed[0].id === 'escort-1', '严格科室阈值下保留张护士');
+
+  const relaxedSpecialty = MatchingAlgorithm.filterHardConstraints(
+    mockEscorts,
+    request,
+    { minSpecialtyScore: 0 },
+  );
+  assert(relaxedSpecialty.passed.length === 4, '科室阈值降为 0 后四名认证候选均可进入排序');
+
+  const defaultScore = MatchingAlgorithm.combineDecisionSignals(0.8, 0.6, 0.4);
+  assertApprox(defaultScore, 0.71, 0.000001, '默认 0.65/0.25/0.10 组合计算正确');
+  const normalizedCustom = MatchingAlgorithm.combineDecisionSignals(
+    0.8,
+    0.6,
+    0.4,
+    { utility: 6.5, consensus: 2.5, confidence: 1 },
+  );
+  assertApprox(normalizedCustom, defaultScore, 0.000001, '等比例参数自动归一化且结果不变');
+  const clamped = MatchingAlgorithm.combineDecisionSignals(
+    2,
+    -1,
+    Number.NaN,
+    { utility: 1, consensus: -1, confidence: 0 },
+  );
+  assertApprox(clamped, 1, 0.000001, '信号和权重异常值被限制为安全有限得分');
+}
+
+function testRobustRankAggregation() {
+  console.log('\n=== MDWMA Kendall 可靠度加权共识排序 ===');
+  const rankings = [
+    [0, 1, 2, 3],
+    [0, 2, 1, 3],
+    [1, 0, 2, 3],
+    [0, 1, 3, 2],
+    [3, 2, 1, 0], // 故意加入反向离群排序
+  ];
+  const result = RobustRankAggregation.solve(rankings, ['A', 'B', 'C', 'D', 'outlier']);
+
+  assert(result.finalRanking[0] === 0, '多数一致意见仍将候选 0 排第一');
+  assertApprox(result.methodWeights.reduce((a, b) => a + b, 0), 1, 0.00001, '方法可靠度权重之和为 1');
+  assert(result.methodWeights.every(value => value > 0), '离群方法仍保留正权重');
+  assert(result.methodWeights[4] < result.methodWeights[0], '反向离群方法权重低于主流方法');
+  assert(result.consensusScores.every(value => value >= 0 && value <= 1), '候选共识分位于 [0,1]');
+  assert(result.consensusIndex >= 0 && result.consensusIndex <= 1, '总体共识指数位于 [0,1]');
+}
+
+function testWeightUncertainty() {
+  console.log('\n=== MDWMA SMAA 风格权重不确定性 ===');
+  const matrix = [
+    [0.95, 0.80, 0.90],
+    [0.80, 0.95, 0.75],
+    [0.65, 0.70, 0.98],
+  ];
+  const options = { iterations: 256, noiseLevel: 0.2, seed: 42 };
+  const first = WeightUncertaintyAnalysis.solve(matrix, [0.5, 0.3, 0.2], options);
+  const second = WeightUncertaintyAnalysis.solve(matrix, [0.5, 0.3, 0.2], options);
+
+  assert(JSON.stringify(first) === JSON.stringify(second), '固定种子的分析结果完全可复现');
+  first.rankAcceptability.forEach((row, index) => {
+    assertApprox(row.reduce((a, b) => a + b, 0), 1, 0.00001, `候选 ${index} 各名次概率之和为 1`);
+  });
+  assertApprox(first.firstRankAcceptability.reduce((a, b) => a + b, 0), 1, 0.00001, '第一名概率在候选间守恒');
+  assert(first.meanKendallTau >= -1 && first.meanKendallTau <= 1, '平均 Kendall τ 位于 [-1,1]');
+  assert(first.referenceTop1Confidence === first.firstRankAcceptability[first.referenceTop1Index], 'Top-1 置信度来自第一名可接受度');
+}
+
+function testBaselineShapley() {
+  console.log('\n=== MDWMA 均值基线 Shapley 解释 ===');
+  const { matrix } = MatchingAlgorithm.buildDecisionMatrix(mockEscorts, request);
+  const weights = Object.values(AHP_WEIGHTS);
+  const result = ShapleyValue.solve(matrix, weights, 1, 'mean');
+
+  assert(result.shapleyValues.some(value => value < 0), '弱于群体均值的维度呈现负贡献');
+  assertApprox(
+    result.baseValue + result.shapleyValues.reduce((a, b) => a + b, 0),
+    result.predictionValue,
+    0.001,
+    '均值基线解释满足局部准确性',
+  );
+  assertApprox(result.absoluteContributionRatio.reduce((a, b) => a + b, 0), 1, 0.001, '绝对贡献比例之和为 1');
+  assert(Math.abs(result.residual) <= 0.001, `解释残差接近 0 (${result.residual})`);
+}
+
+function testAvailabilityConstraints() {
+  console.log('\n=== MDWMA 服务类型与预约时段硬约束 ===');
+  const commonAvailability = {
+    serviceType: 'hospital_accompaniment',
+    startDate: '2026-07-01',
+    endDate: '2026-08-31',
+    availableWeekdays: [3], // 2026-07-22 为周三
+    maxDailyOrders: 2,
+    bookingsOnDate: 1,
+    pricePerHour: 80,
+    hospitalIds: ['hospital-a'],
+  };
+  const available: EscortFeatureVector = {
+    ...mockEscorts[0],
+    id: 'available',
+    availableServices: [
+      {
+        ...commonAvailability,
+        serviceId: 'service-standard',
+        timeSlots: [{ start: '08:00', end: '12:00' }],
+        bookedTimeSlots: [{ start: '09:00', end: '10:00' }],
+      },
+      {
+        ...commonAvailability,
+        serviceId: 'service-economy',
+        pricePerHour: 60,
+        timeSlots: [{ start: '08:00', end: '12:00' }],
+        bookedTimeSlots: [{ start: '09:00', end: '10:00' }],
+      },
+    ],
+  };
+  const booked: EscortFeatureVector = {
+    ...mockEscorts[0],
+    id: 'booked',
+    availableServices: [{
+      ...commonAvailability,
+      serviceId: 'service-booked',
+      timeSlots: [{ start: '08:00', end: '12:00' }],
+      bookedTimeSlots: [{ start: '10:00', end: '11:00' }],
+    }],
+  };
+  const wrongService: EscortFeatureVector = {
+    ...mockEscorts[0],
+    id: 'wrong-service',
+    availableServices: [{
+      ...commonAvailability,
+      serviceId: 'service-wrong-type',
+      serviceType: 'home_care',
+      timeSlots: [{ start: '08:00', end: '12:00' }],
+    }],
+  };
+  const missingSlots: EscortFeatureVector = {
+    ...mockEscorts[0],
+    id: 'missing-slots',
+    availableServices: [{
+      ...commonAvailability,
+      serviceId: 'service-missing-slots',
+      timeSlots: [],
+    }],
+  };
+  const wrongHospital: EscortFeatureVector = {
+    ...mockEscorts[0],
+    id: 'wrong-hospital',
+    availableServices: [{
+      ...commonAvailability,
+      serviceId: 'service-wrong-hospital',
+      hospitalIds: ['hospital-b'],
+      timeSlots: [{ start: '08:00', end: '12:00' }],
+    }],
+  };
+  const timedRequest: MatchingRequest = {
+    ...request,
+    serviceType: 'hospital_accompaniment',
+    hospitalId: 'hospital-a',
+    appointmentDate: '2026-07-22',
+    appointmentTime: '10:30',
+    durationHours: 1,
+  };
+  const filtered = MatchingAlgorithm.filterHardConstraints(
+    [available, booked, wrongService, missingSlots, wrongHospital],
+    timedRequest,
+  );
+
+  assert(filtered.passed.length === 1 && filtered.passed[0].id === 'available', '仅保留类型、日期和时间均可用的候选');
+  assert(filtered.passed[0].hourlyRate === 60, '使用实际可用服务中的最低发布价格评分');
+  assert(filtered.passed[0].matchedServiceId === 'service-economy', '返回本次匹配选中的服务 ID');
+  assert(filtered.filtered.length === 4, '冲突时段、错误服务类型、空发布时段和医院范围不符均被过滤');
+  assert(filtered.filtered.every(item => item.reason.includes('不可用')), '可用性过滤原因可追溯');
+  assert(filtered.filtered.some(item => item.escort.id === 'wrong-hospital'), '服务医院覆盖范围硬约束生效');
+
+  const outsideFullInterval = MatchingAlgorithm.filterHardConstraints([available], {
+    ...timedRequest,
+    appointmentTime: '11:30',
+    durationHours: 1,
+  });
+  assert(outsideFullInterval.passed.length === 0, '完整服务区间越过发布时段终点时被过滤');
+
+  const boundaryNonConflict = MatchingAlgorithm.filterHardConstraints([available], {
+    ...timedRequest,
+    appointmentTime: '10:00',
+    durationHours: 2,
+  });
+  assert(boundaryNonConflict.passed.length === 1, '预约恰在既有时段结束时开始不构成重叠');
+
+  const uncovered = { ...mockEscorts[0], id: 'legacy-no-availability', availableServices: undefined };
+  const failClosed = MatchingAlgorithm.filterHardConstraints([uncovered], timedRequest);
+  assert(failClosed.passed.length === 0 && failClosed.filtered.length === 1, '请求携带服务字段而可用性数据缺失时按 fail-closed 排除');
+  assert(failClosed.filtered[0].reason.includes('转人工复核'), 'fail-closed 排除原因标记转人工复核');
+  const uncoveredDecision = MatchingAlgorithm.rankEscortsFull([uncovered], timedRequest);
+  assert(uncoveredDecision.results.length === 0 && uncoveredDecision.meta.status === 'no_candidates', '可用性数据缺失候选不被自动推荐');
+  assert(uncoveredDecision.meta.warnings.some(item => item.includes('缺少发布服务可用性数据')), 'fail-closed 排除同时输出数据覆盖告警');
+}
+
+function testNoUnsafeFallbackAndEdgeCases() {
+  console.log('\n=== MDWMA 无不安全回退与边界输入 ===');
+  const unverified = { ...mockEscorts[0], id: 'unsafe', isVerified: false };
+  const none = MatchingAlgorithm.rankEscortsFull([unverified], request);
+  assert(none.results.length === 0, '全部不合格时返回空结果，不回放原候选');
+  assert(none.meta.status === 'no_candidates', '全部不合格时状态为 no_candidates');
+  assert(none.meta.hardConstraints.filtered === 1, '不合格原因进入元数据');
+
+  const empty = MatchingAlgorithm.rankEscortsFull([], request);
+  assert(empty.results.length === 0 && empty.meta.status === 'no_candidates', '空候选输入安全返回');
+
+  const single = MatchingAlgorithm.rankEscortsFull([mockEscorts[0]], request);
+  assert(single.results.length === 1 && single.meta.status === 'ok', '单候选输入可完成完整管线');
+  assert(Number.isFinite(single.results[0].compositeScore), '单候选综合分为有限数值');
+  assert(single.meta.pareto.top1IsParetoOptimal, '单候选属于 Pareto 前沿');
 }
 
 // ==================== CRITIC 客观赋权测试 ====================
@@ -1108,6 +1431,9 @@ function testParetoDominance() {
   // Pareto 前沿非空
   assert(result.paretoFront.length >= 1, `Pareto 前沿 ≥ 1 个解`);
   assert(result.paretoFront.includes(0), '张护士在 Pareto 前沿中');
+  assert(result.paretoLayers.length >= 1, '输出非支配分层');
+  assert(result.dominanceDepth.length === 4, '每个候选都有 Pareto 层级');
+  assert(result.paretoFront.every(index => result.dominanceDepth[index] === 0), '第一前沿候选层级为 0');
 
   // 支配关系反对称: 若 i 支配 j, 则 j 不支配 i
   for (let i = 0; i < 4; i++) {
@@ -1135,14 +1461,15 @@ function testParetoDominance() {
   assert(domResult.paretoFront.includes(0), 'A 在前沿');
   assert(domResult.paretoFront.includes(2), 'C 在前沿 (邻近度超越 A)');
   assert(!domResult.paretoFront.includes(1), 'B 不在前沿');
+  assert(domResult.dominanceDepth[1] > 0, '被支配候选进入更深 Pareto 层');
   console.log(`  验证案例: B 被 A 支配 ✓, Pareto 前沿 = [A, C] ✓`);
 }
 
 // ==================== 运行所有测试 ====================
 
 console.log('╔══════════════════════════════════════════════════════════╗');
-console.log('║  MDWMA v4 多维加权陪护匹配算法 - 完整单元测试           ║');
-console.log('║  5路MCDM × Borda-Copeland × Shapley × PT × Pareto      ║');
+console.log('║  MDWMA 多维加权陪护匹配算法 - 完整单元测试              ║');
+console.log('║  安全约束 × 鲁棒赋权 × 5路共识 × SMAA × 可解释性       ║');
 console.log('╚══════════════════════════════════════════════════════════╝');
 
 try {
@@ -1154,6 +1481,8 @@ try {
   testExperienceScore();
   testPriceScore();
   testLoadBalance();
+  testMalformedFeatureSafety();
+  testMatchingRequestValidation();
 
   // 综合排序
   testCompositeRanking();
@@ -1172,6 +1501,13 @@ try {
   // 硬约束 + 完整管线
   testHardConstraints();
   testRankEscortsFull();
+  testRobustAdaptiveWeighting();
+  testAuditableDecisionParameters();
+  testRobustRankAggregation();
+  testWeightUncertainty();
+  testBaselineShapley();
+  testAvailabilityConstraints();
+  testNoUnsafeFallbackAndEdgeCases();
 
   // 灵敏度分析
   testSensitivityAnalysis();
@@ -1182,7 +1518,7 @@ try {
   testMonteCarloSensitivity();
   testMMRRerank();
 
-  // v4: Shapley + PROMETHEE + GRA + 前景理论 + Pareto
+  // 可解释性 + PROMETHEE + GRA + 前景理论 + Pareto
   testShapleyValue();
   testPROMETHEE();
   testGRA();

@@ -2,6 +2,7 @@ import { Controller, Post, Get, Body, Param, Query } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { MatchingService } from './matching.service';
 import { MatchingRequestDto } from './dto/matching.dto';
+import { AHPSolver, AHP_JUDGMENT_MATRIX } from './matching-algorithm';
 
 @ApiTags('Matching')
 @Controller('matching')
@@ -34,24 +35,30 @@ export class MatchingController {
   @Get('weights')
   @ApiOperation({
     summary: '获取算法权重配置',
-    description: '返回 MDWMA 算法的 AHP 权重向量及各维度说明，用于论文可复现性。',
+    description: '返回 MDWMA 的 AHP 先验权重及动态赋权说明。实际权重会根据候选集 EWM/CRITIC 结果自适应调整。',
   })
   getWeights() {
+    const ahp = AHPSolver.solve(AHP_JUDGMENT_MATRIX);
+    const definitions = [
+      { dimension: 'f₁', name: '科室匹配度', method: '精确匹配 + 层级模糊匹配' },
+      { dimension: 'f₂', name: '地理邻近度', method: '高斯距离衰减 exp(-d²/2σ²), σ=5km' },
+      { dimension: 'f₃', name: '信任评分', method: '信任协议模块输出归一化 (0-100 → 0-1)' },
+      { dimension: 'f₄', name: '服务质量', method: '5分制评分线性归一化' },
+      { dimension: 'f₅', name: '服务经验', method: '对数归一化 ln(1+n)/ln(1+200)' },
+      { dimension: 'f₆', name: '价格适配度', method: '非对称可负担性：预算内=1，超预算=budget/rate' },
+      { dimension: 'f₇', name: '负载均衡度', method: '活跃订单倒数衰减 1/(1+n)' },
+    ];
     return {
-      algorithm: 'MDWMA v1.0 (Multi-Dimensional Weighted Matching Algorithm)',
-      formula: 'S(eᵢ) = Σⱼ₌₁⁷ (wⱼ × fⱼ(eᵢ, R))',
-      weights: [
-        { dimension: 'f₁', name: '科室匹配度', weight: 0.25, method: 'Jaccard 相似度 + 层级模糊匹配' },
-        { dimension: 'f₂', name: '地理邻近度', weight: 0.20, method: '高斯距离衰减 exp(-d²/2σ²), σ=5km' },
-        { dimension: 'f₃', name: '信任评分', weight: 0.20, method: '信任协议模块输出归一化 (0-100 → 0-1)' },
-        { dimension: 'f₄', name: '服务质量', weight: 0.15, method: '5分制评分线性归一化' },
-        { dimension: 'f₅', name: '服务经验', weight: 0.10, method: '对数归一化 ln(1+n)/ln(1+200)' },
-        { dimension: 'f₆', name: '价格适配度', weight: 0.05, method: '预算偏差惩罚 max(0, 1-|rate-budget|/budget)' },
-        { dimension: 'f₇', name: '负载均衡度', weight: 0.05, method: '活跃订单倒数衰减 1/(1+n)' },
-      ],
-      ahpConsistencyRatio: 0.032,
+      algorithm: 'MDWMA (Constrained Robust Consensus)',
+      formula: 'RobustScore = 0.65·Utility + 0.25·Consensus + 0.10·RankAcceptability',
+      priorWeights: definitions.map((definition, index) => ({
+        ...definition,
+        weight: ahp.weights[index],
+      })),
+      dynamicWeighting: 'AHP prior + EWM + CRITIC, with n/(n+2m) small-sample shrinkage and 0.45 criterion cap',
+      ahpConsistencyRatio: ahp.CR,
       ahpThreshold: 0.1,
-      ahpPassed: true,
+      ahpPassed: ahp.passed,
     };
   }
 }

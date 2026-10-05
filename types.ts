@@ -218,3 +218,24 @@ export interface SearchHistoryItem {
   type: 'hospital' | 'escort' | 'all' | 'web';
   timestamp: number;
 }
+
+// Auth credentials（与 services/apiService.ts 内部定义保持一致）
+export interface LoginCredentials {
+  email: string;
+  password: string;
+  role?: UserRole;
+}
+
+export interface RegisterData {
+  email: string;
+  password: string;
+  role: UserRole;
+  name?: string;
+  phone?: string;
+}
+
+export interface AuthResponse {
+  accessToken: string;
+  refreshToken: string;
+  user: UserInfo;
+}

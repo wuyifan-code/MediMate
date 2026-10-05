@@ -19,9 +19,9 @@ const MOCK_ESCORTS: EscortProfile[] = [
     name: '王医生',
     rating: 4.9,
     completedOrders: 256,
-    isCertified: true,
+    isVerified: true,
     specialties: ['内科', '老年科'],
-    imageUrl: 'https://ui-avatars.com/api/?name=王医生&background=random',
+    avatarUrl: 'https://ui-avatars.com/api/?name=王医生&background=random',
     distance: '1.2km',
   },
   {
@@ -29,9 +29,9 @@ const MOCK_ESCORTS: EscortProfile[] = [
     name: '李护士',
     rating: 4.8,
     completedOrders: 189,
-    isCertified: true,
+    isVerified: true,
     specialties: ['护理', '儿科'],
-    imageUrl: 'https://ui-avatars.com/api/?name=李护士&background=random',
+    avatarUrl: 'https://ui-avatars.com/api/?name=李护士&background=random',
     distance: '2.5km',
   },
   {
@@ -39,9 +39,9 @@ const MOCK_ESCORTS: EscortProfile[] = [
     name: '张护工',
     rating: 4.7,
     completedOrders: 128,
-    isCertified: true,
+    isVerified: true,
     specialties: ['陪护', '康复'],
-    imageUrl: 'https://ui-avatars.com/api/?name=张护工&background=random',
+    avatarUrl: 'https://ui-avatars.com/api/?name=张护工&background=random',
     distance: '3.1km',
   },
   {
@@ -49,9 +49,9 @@ const MOCK_ESCORTS: EscortProfile[] = [
     name: '刘医生',
     rating: 4.9,
     completedOrders: 312,
-    isCertified: true,
+    isVerified: true,
     specialties: ['外科', '骨科'],
-    imageUrl: 'https://ui-avatars.com/api/?name=刘医生&background=random',
+    avatarUrl: 'https://ui-avatars.com/api/?name=刘医生&background=random',
     distance: '4.2km',
   },
 ];
@@ -470,14 +470,14 @@ export const PatientDashboard: React.FC<PatientDashboardProps> = ({ lang }) => {
                   onClick={() => handleViewEscort(escort.id)}
                 >
                   <img
-                    src={escort.imageUrl || `https://picsum.photos/60/60?random=${escort.id}`}
+                    src={escort.avatarUrl || `https://picsum.photos/60/60?random=${escort.id}`}
                     alt=""
                     className="w-14 h-14 rounded-full object-cover"
                   />
                   <div className="flex-1">
                     <div className="flex items-center gap-2">
                       <span className="font-bold text-slate-900">{escort.name}</span>
-                      {escort.isCertified && (
+                      {escort.isVerified && (
                         <span className="px-1.5 py-0.5 bg-teal-100 text-teal-700 text-xs rounded-full">
                           {t.certified}
                         </span>

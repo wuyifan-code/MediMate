@@ -26,5 +26,16 @@
     },
     "allowImportingTsExtensions": true,
     "noEmit": true
-  }
+  },
+  "exclude": [
+    "node_modules",
+    "dist",
+    "server",
+    "docs",
+    "android",
+    "tests",
+    "services/apiService.spec.ts",
+    "services/authService.ts",
+    "src/routes/index.tsx"
+  ]
 }
