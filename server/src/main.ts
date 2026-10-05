@@ -16,7 +16,11 @@ async function bootstrap() {
 
   // Enable CORS
   app.enableCors({
-    origin: ['http://localhost:3000', 'http://localhost:3003'],
+    origin: [
+      'http://localhost:3000',
+      'http://localhost:3003',
+      'https://wuyifan-code.github.io',
+    ],
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],

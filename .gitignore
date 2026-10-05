@@ -64,3 +64,7 @@ output/
 .mimosa/
 .agents/
 .uploads/
+
+# 本地诊断脚本（含密钥探测，不入库）
+server/diag_minimax.ts
+server/test_minimax.ts
